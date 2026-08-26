@@ -113,14 +113,18 @@ test('collectMcodeDesktopRows honors sinceMs for anchored ticks', () => {
 
 test('buildMcodeDesktopPeriods splits today/month/allTime and merges into mcode client', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mcode-desktop-periods-'));
-  const now = new Date('2026-08-26T12:00:00.000Z');
+  // Build every fixture instant from local calendar dates: usage windows are
+  // cut at *local* midnight, so UTC-anchored instants land in different local
+  // days depending on the runner's offset (the CI timezones job runs the suite
+  // at several UTC offsets to catch exactly this).
+  const now = new Date(2026, 7, 26, 12, 0, 0); // local 2026-08-26 noon
   writeSession(root, 'mvs_p', [
-    JSON.stringify(assistantMessage({ id: 'today', turnId: 't', input: 50, output: 5, timestamp: Date.parse('2026-08-26T10:00:00.000Z') })),
-    JSON.stringify(assistantMessage({ id: 'month', turnId: 't', input: 30, output: 3, timestamp: Date.parse('2026-08-03T10:00:00.000Z') })),
-    JSON.stringify(assistantMessage({ id: 'older', turnId: 't', input: 10, output: 1, timestamp: Date.parse('2026-07-15T10:00:00.000Z') }))
+    JSON.stringify(assistantMessage({ id: 'today', turnId: 't', input: 50, output: 5, timestamp: new Date(2026, 7, 26, 10, 0, 0).getTime() })),
+    JSON.stringify(assistantMessage({ id: 'month', turnId: 't', input: 30, output: 3, timestamp: new Date(2026, 7, 3, 10, 0, 0).getTime() })),
+    JSON.stringify(assistantMessage({ id: 'older', turnId: 't', input: 10, output: 1, timestamp: new Date(2026, 6, 15, 10, 0, 0).getTime() }))
   ]);
   const rows = collectMcodeDesktopRows({ homeDir: root });
-  const json = buildMcodeDesktopPeriods({ now, allTimeSince: '2026-07-01', rows });
+  const json = buildMcodeDesktopPeriods({ now, allTimeSince: '2026-01-01', rows });
   const today = extractUsageFromTokscale(json.today);
   const month = extractUsageFromTokscale(json.month);
   const allTime = extractUsageFromTokscale(json.allTime);
@@ -130,17 +134,22 @@ test('buildMcodeDesktopPeriods splits today/month/allTime and merges into mcode 
   assert.equal(allTime.clients.mcode, 99);
 });
 
-test('buildMcodeDesktopHistoryGraph groups contributions by day', () => {
+test('buildMcodeDesktopHistoryGraph groups contributions by local day', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mcode-desktop-graph-'));
+  // Local calendar dates again, so the expected day keys are the same local
+  // days the graph derives from the instants in any timezone.
+  const day1 = new Date(2026, 7, 25, 10, 0, 0);
+  const day2 = new Date(2026, 7, 26, 10, 0, 0);
+  const localKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   writeSession(root, 'mvs_g', [
-    JSON.stringify(assistantMessage({ id: 'd1', turnId: 't', input: 10, timestamp: Date.parse('2026-08-25T10:00:00.000Z') })),
-    JSON.stringify(assistantMessage({ id: 'd2', turnId: 't', input: 20, timestamp: Date.parse('2026-08-26T10:00:00.000Z') }))
+    JSON.stringify(assistantMessage({ id: 'd1', turnId: 't', input: 10, timestamp: day1.getTime() })),
+    JSON.stringify(assistantMessage({ id: 'd2', turnId: 't', input: 20, timestamp: day2.getTime() }))
   ]);
   const rows = collectMcodeDesktopRows({ homeDir: root });
   const graph = buildMcodeDesktopHistoryGraph({ rows });
   assert.equal(graph.contributions.length, 2);
-  assert.equal(graph.contributions[0].date, '2026-08-25');
-  assert.equal(graph.contributions[1].date, '2026-08-26');
+  assert.equal(graph.contributions[0].date, localKey(day1));
+  assert.equal(graph.contributions[1].date, localKey(day2));
   assert.equal(graph.contributions[0].clients[0].client, 'mcode');
   assert.equal(graph.contributions[0].clients[0].tokens.input, 10);
   assert.equal(graph.contributions[1].clients[0].tokens.input, 20);
