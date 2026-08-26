@@ -1039,8 +1039,12 @@ test('fx rows keep Tokscale reasoning inside the output bucket', () => {
   assert.equal(session.reasoningTokens, 60);
 });
 
-test('normalizeClientName maps MiniMax Code to mcode', () => {
+test('normalizeClientName maps MiniMax Code and its product label to mcode', () => {
   assert.equal(normalizeClientName('mcode'), 'mcode');
+  assert.equal(normalizeClientName('MiniMax Code'), 'mcode');
+  assert.equal(normalizeClientName('minimax-code'), 'mcode');
+  // A MiniMax *model* label is not the client: it must not collapse into mcode.
+  assert.equal(normalizeClientName('MiniMax-M3'), 'minimax-m3');
 });
 
 test('extractUsageFromTokscale keeps model usage grouped by client', () => {
