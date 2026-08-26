@@ -2425,6 +2425,18 @@ function clientSourceRoots(clientsCsv, options = {}) {
     ['mimocode-data', path.join(xdgHome, 'mimocode')],
     ['mimocode-orca-data', path.join(home, 'Library', 'Application Support', 'orca', 'mimocode-hooks', 'shared', 'data')]
   );
+  // MiniMax Code: tokscale 4.13.0 captures `mcode exec --output-format
+  // stream-json` streams under its own headless roots (TOKSCALE_HEADLESS_DIR or
+  // the `<home>/.config/tokscale/headless` + Application Support pair, mirroring
+  // codex), and never scans MiniMax Code's shared Desktop/Runtime session store
+  // where the originating surface is not distinguishable. The roots are
+  // `optional` because nobody has them unless they opted into a capture
+  // workflow, so the diagnostics panel hides them while absent; watching them
+  // gives seconds-level refresh when a new capture lands.
+  add(
+    'mcode',
+    ...tokscaleHeadlessRoots(home).map(({ dir, optional }) => ['mcode-headless', path.join(dir, 'mcode'), null, optional])
+  );
   const zcodeDbDir = path.join(home, '.zcode', 'cli', 'db');
   add(
     'zcode',
