@@ -13,7 +13,8 @@ const {
   collectMcodeDesktopRows,
   mcodeDesktopSessionsRoot,
   normalizeMcodeDesktopLine,
-  sessionIdForDir
+  sessionIdForDir,
+  walkMessageFiles
 } = require('../../src/shared/mcodeDesktopUsage');
 const { extractUsageFromTokscale } = require('../../src/shared/usage');
 
@@ -164,4 +165,31 @@ test('mcodeDesktopSessionsRoot points at the Desktop app store', () => {
 test('sessionIdForDir falls back to a stable derived id when manifest is missing', () => {
   const dir = path.join('/tmp/x', '10-00-00-000-session_mvs_xyz');
   assert.equal(sessionIdForDir(dir), 'mvs_xyz');
+});
+
+test('walkMessageFiles stops the whole walk once the byte budget is exceeded', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mcode-desktop-budget-'));
+  // Three sibling sessions, each ~200 bytes of messages. A cap of 400 must
+  // stop at two files even though the third sibling directory is unvisited.
+  for (const id of ['a', 'b', 'c']) {
+    writeSession(root, `mvs_${id}`, [
+      JSON.stringify(assistantMessage({ id: `m${id}`, turnId: 't', input: 10, output: 1 }))
+    ]);
+  }
+  const files = walkMessageFiles(root, { maxBytes: 400 });
+  assert.equal(files.length, 2, `expected 2 files under a 400-byte cap, got ${files.length}`);
+});
+
+test('collectMcodeDesktopRows reads against the remaining shared budget, not per file', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mcode-desktop-shared-budget-'));
+  for (const id of ['a', 'b', 'c', 'd']) {
+    writeSession(root, `mvs_${id}`, [
+      JSON.stringify(assistantMessage({ id: `m${id}`, turnId: 't', input: 10, output: 1 }))
+    ]);
+  }
+  // Small global budget: the collector must not read the full per-file cap for
+  // every transcript, so the resulting row count stays well below the 4 rows
+  // the store contains.
+  const rows = collectMcodeDesktopRows({ homeDir: root, maxBytes: 500 });
+  assert.ok(rows.length >= 1 && rows.length < 4, `expected a partial read under a tiny shared budget, got ${rows.length}`);
 });
