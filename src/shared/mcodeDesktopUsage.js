@@ -112,8 +112,9 @@ function normalizeMcodeDesktopLine(line, sessionId, filePath) {
 function walkMessageFiles(root, options = {}) {
   const out = [];
   const maxBytes = Number.isFinite(options.maxBytes) ? options.maxBytes : MCODE_DESKTOP_READ_MAX_BYTES;
-  const budget = { bytes: 0 };
+  const budget = { bytes: 0, exhausted: false };
   const walk = (dir) => {
+    if (budget.exhausted) return;
     let entries;
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -121,6 +122,7 @@ function walkMessageFiles(root, options = {}) {
       return;
     }
     for (const entry of entries) {
+      if (budget.exhausted) return;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(full);
@@ -129,7 +131,12 @@ function walkMessageFiles(root, options = {}) {
         try {
           budget.bytes += fs.statSync(full).size;
         } catch (_) {}
-        if (budget.bytes > maxBytes) return;
+        if (budget.bytes > maxBytes) {
+          // `return` alone only exits this frame; the flag stops every sibling
+          // and ancestor recursion from adding more files after the cap.
+          budget.exhausted = true;
+          return;
+        }
       }
     }
   };
@@ -144,8 +151,14 @@ function collectMcodeDesktopRows(options = {}) {
   const root = mcodeDesktopSessionsRoot(options);
   if (!fs.existsSync(root)) return [];
   const sinceMs = Math.max(0, Number(options.sinceMs || 0));
+  const maxRows = Number.isFinite(options.maxRows) ? options.maxRows : MCODE_DESKTOP_READ_MAX_ROWS;
   const rows = [];
+  // One budget shared across every transcript: each file may read only the
+  // remaining allowance, not the full per-file cap, so a deep session tree
+  // cannot exceed the intended total.
+  let budget = Number.isFinite(options.maxBytes) ? options.maxBytes : MCODE_DESKTOP_READ_MAX_BYTES;
   for (const file of walkMessageFiles(root, options)) {
+    if (budget <= 0) break;
     let fd;
     try {
       fd = fs.openSync(file, 'r');
@@ -158,7 +171,7 @@ function collectMcodeDesktopRows(options = {}) {
     let content;
     try {
       const stat = fs.fstatSync(fd);
-      const bytes = Math.min(stat.size, options.maxBytes || MCODE_DESKTOP_READ_MAX_BYTES);
+      const bytes = Math.min(stat.size, budget);
       const buffer = Buffer.alloc(bytes);
       fs.readSync(fd, buffer, 0, bytes, 0);
       content = buffer.toString('utf8');
@@ -167,12 +180,14 @@ function collectMcodeDesktopRows(options = {}) {
       continue;
     }
     try { fs.closeSync(fd); } catch (_) {}
+    const consumed = Buffer.byteLength(content, 'utf8');
+    budget -= consumed;
     const sessionId = sessionIdForDir(path.dirname(file));
     for (const line of content.split('\n')) {
       const row = normalizeMcodeDesktopLine(line, sessionId, file);
       if (row && (!sinceMs || row.createdAt >= sinceMs)) rows.push(row);
     }
-    if (rows.length >= (options.maxRows || MCODE_DESKTOP_READ_MAX_ROWS)) break;
+    if (rows.length >= maxRows) break;
   }
 
   const unique = new Map();
