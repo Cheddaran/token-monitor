@@ -9,14 +9,16 @@ const GITHUB_URL = 'https://github.com/Javis603/token-monitor';
 const KNOWN_CLIENT_ASSETS = new Set([
   'claude', 'codex', 'opencode', 'hermes', 'openclaw', 'cursor', 'antigravity', 'cline',
   'amp', 'droid', 'kimi', 'qwen', 'grok', 'copilot', 'pi', 'omp', 'zed', 'kilo', 'commandcode', 'mimo', 'zcode', 'kiro', 'codebuddy', 'workbuddy', 'proma', 'qodercn', 'reasonix', 'dsh', 'cherrystudio', 'lmstudio', 'unsloth', 'devin',
-  'gemini'
+  'gemini',
+  'mcode'
 ]);
 const CLIENT_LABELS = {
   claude: 'Claude', codex: 'Codex', opencode: 'OpenCode', hermes: 'Hermes Agent',
   openclaw: 'OpenClaw', cursor: 'Cursor', antigravity: 'Antigravity', cline: 'Cline',
   amp: 'Amp', droid: 'Factory Droid', kimi: 'Kimi', qwen: 'Qwen', grok: 'Grok Build', copilot: 'GitHub Copilot',
   pi: 'Pi', omp: 'Oh My Pi', zed: 'Zed', kilo: 'Kilo', commandcode: 'Command Code', mimo: 'Xiaomi MiMo', zcode: 'ZCode', kiro: 'Kiro', codebuddy: 'CodeBuddy', workbuddy: 'WorkBuddy', proma: 'Proma', qodercn: 'Qoder CN', reasonix: 'Reasonix', dsh: 'DeepSeek Harness', cherrystudio: 'Cherry Studio', lmstudio: 'LM Studio', unsloth: 'Unsloth', devin: 'Devin',
-  gemini: 'Gemini'
+  gemini: 'Gemini',
+  mcode: 'MiniMax Code'
 };
 const UPDATE_MIN_INTERVAL_MS = 15000;
 const RECONNECT_DELAY_MS = 30000;
