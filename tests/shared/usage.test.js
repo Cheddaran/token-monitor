@@ -745,13 +745,15 @@ test('extractUsageFromTokscale normalizes Pi, Zed, and Kilo Code, keeping Copilo
   assert.equal(period.clients.kilocode, 19);
 });
 
-test('extractUsageFromTokscale normalizes MiMo Code and ZCode client ids', () => {
+test('extractUsageFromTokscale normalizes MiMo Code, MiniMax Code and ZCode client ids', () => {
   const period = extractUsageFromTokscale([
     { client: 'micode', model: 'mimo-v2.5-pro', totalTokens: 23 },
+    { client: 'mcode', model: 'MiniMax-M2.5', totalTokens: 31 },
     { client: 'ZCode', model: 'glm-4.7', totalTokens: 29 }
   ]);
 
   assert.equal(period.clients.micode, 23);
+  assert.equal(period.clients.mcode, 31);
   assert.equal(period.clients.zcode, 29);
 });
 
@@ -838,6 +840,10 @@ test('normalizeClientName keeps Qoder CN distinct from international Qoder', () 
   assert.equal(normalizeClientName('Qoder CN'), 'qodercn');
   assert.equal(normalizeClientName('qoder-cn'), 'qodercn');
   assert.equal(normalizeClientName('Qoder'), 'qoder');
+});
+
+test('normalizeClientName maps MiniMax Code to mcode', () => {
+  assert.equal(normalizeClientName('mcode'), 'mcode');
 });
 
 test('extractUsageFromTokscale keeps model usage grouped by client', () => {
