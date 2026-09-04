@@ -42,13 +42,10 @@ const WSL_DATA_MARKERS = [
   '.vscode-server/data/User/globalStorage/kilocode.kilo-code/tasks',
   '.commandcode/projects',
   '.dsh/sessions',
-<<<<<<< HEAD
-  '.factory/sessions',
-=======
+  '.factory/sessions': 'droid',
   // MiniMax Code headless capture lives under tokscale's own headless root in
   // the WSL home; without the marker a WSL-only mcode install is never scanned.
-  '.config/tokscale/headless/mcode',
->>>>>>> b8393fa (fix(mcode): address review findings)
+  '.config/tokscale/headless/mcode': 'mcode',
   '.local/share/mimocode/mimocode.db',
   '.zcode/projects',
   '.zcode/cli/db',
