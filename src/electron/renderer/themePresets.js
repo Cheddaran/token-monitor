@@ -98,6 +98,7 @@
     dsh: 'DeepSeek Harness',
     cherrystudio: 'Cherry Studio',
     lmstudio: 'LM Studio',
+    mcode: 'MiniMax Code',
     unsloth: 'Unsloth',
     deepseek: 'DeepSeek',
     xai: 'xAI',

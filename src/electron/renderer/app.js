@@ -67,6 +67,7 @@ const KNOWN_CLIENTS = [
   { id: 'zed', label: 'Zed' },
   { id: 'kilocode', label: 'Kilo Code' },
   { id: 'commandcode', label: 'Command Code' },
+  { id: 'mcode', label: 'MiniMax Code' },
   { id: 'micode', label: 'MiMo Code' },
   { id: 'zcode', label: 'ZCode' },
   { id: 'kiro', label: 'Kiro' },
