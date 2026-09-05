@@ -10,6 +10,7 @@ const {
   mergeDeviceRecord,
   mergePeriods,
   normalizeClientName,
+  normalizeModelNameForClient,
   UNATTRIBUTED_USAGE_CLIENT
 } = require('../../src/shared/usage');
 
@@ -745,14 +746,42 @@ test('extractUsageFromTokscale normalizes Pi, Zed, and Kilo Code, keeping Copilo
   assert.equal(period.clients.kilocode, 19);
 });
 
-test('extractUsageFromTokscale normalizes MiMo Code and ZCode client ids', () => {
+test('extractUsageFromTokscale normalizes MiMo Code, MiniMax Code and ZCode client ids', () => {
   const period = extractUsageFromTokscale([
     { client: 'micode', model: 'mimo-v2.5-pro', totalTokens: 23 },
+    { client: 'mcode', model: 'MiniMax-M2.5', totalTokens: 31 },
     { client: 'ZCode', model: 'glm-4.7', totalTokens: 29 }
   ]);
 
   assert.equal(period.clients.micode, 23);
+  assert.equal(period.clients.mcode, 31);
   assert.equal(period.clients.zcode, 29);
+});
+
+test('extractUsageFromTokscale merges provider-qualified claude model ids with bare ids from other tools', () => {
+  // tokscale's Claude parser canonicalizes MiniMax-M3 through its pricing
+  // alias table into the provider-qualified "minimax/MiniMax-M3" (so the
+  // first-party price resolves), while the mcode parsers key the same model
+  // bare. Both must land on one model key or usage/cost split in two.
+  const period = extractUsageFromTokscale([
+    { client: 'claude', model: 'minimax/MiniMax-M3', totalTokens: 40 },
+    { client: 'mcode', model: 'MiniMax-M3', totalTokens: 60 }
+  ]);
+
+  assert.equal(period.models['minimax-m3'], 100);
+  assert.equal(period.models['minimax/minimax-m3'], undefined);
+  assert.equal(period.clientModels.claude['minimax-m3'], 40);
+  assert.equal(period.clientModels.mcode['minimax-m3'], 60);
+});
+
+test('claude provider-prefix strip leaves native and non-claude model keys alone', () => {
+  assert.equal(normalizeModelNameForClient('minimax/MiniMax-M3', 'claude'), 'minimax-m3');
+  assert.equal(normalizeModelNameForClient('minimax/minimax-m3', 'claude'), 'minimax-m3');
+  assert.equal(normalizeModelNameForClient('anthropic/claude-4-6-sonnet', 'claude'), 'claude-4-6-sonnet');
+  assert.equal(normalizeModelNameForClient('openrouter/anthropic/claude-sonnet-4', 'claude'), 'anthropic/claude-sonnet-4');
+  assert.equal(normalizeModelNameForClient('claude-sonnet-4-5', 'claude'), 'claude-sonnet-4-5');
+  assert.equal(normalizeModelNameForClient('deepseek/deepseek-v3', 'codex'), 'deepseek/deepseek-v3');
+  assert.equal(normalizeModelNameForClient('deepseek/deepseek-v4-flash', 'reasonix'), 'deepseek-v4-flash');
 });
 
 test('extractUsageFromTokscale passes zcode input straight through (tokscale normalizes cache upstream)', () => {
@@ -838,6 +867,14 @@ test('normalizeClientName keeps Qoder CN distinct from international Qoder', () 
   assert.equal(normalizeClientName('Qoder CN'), 'qodercn');
   assert.equal(normalizeClientName('qoder-cn'), 'qodercn');
   assert.equal(normalizeClientName('Qoder'), 'qoder');
+});
+
+test('normalizeClientName maps MiniMax Code and its product label to mcode', () => {
+  assert.equal(normalizeClientName('mcode'), 'mcode');
+  assert.equal(normalizeClientName('MiniMax Code'), 'mcode');
+  assert.equal(normalizeClientName('minimax-code'), 'mcode');
+  // A MiniMax *model* label is not the client: it must not collapse into mcode.
+  assert.equal(normalizeClientName('MiniMax-M3'), 'minimax-m3');
 });
 
 test('extractUsageFromTokscale keeps model usage grouped by client', () => {
