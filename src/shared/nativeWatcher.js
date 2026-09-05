@@ -113,21 +113,6 @@ function createNativeWatcher(dirs, clients) {
     }
   });
 
-  // Last-resort safety net for fs.watch errors that fire before our
-  // per-watcher listener attaches (seen on macOS for `recursive: true`
-  // against a path that does not yet exist — the error becomes
-  // uncaughtException if no listener is attached). The queueMicrotask
-  // above usually catches it via its outer try/catch, but this guards
-  // against the race. Scoped to this helper's lifetime so it doesn't
-  // outlive the watcher.
-  const onUncaught = (error) => {
-    if (closed) return;
-    if (!error || error.code !== 'ENOENT') return;
-    emitter.emit('error', error);
-  };
-  process.on('uncaughtException', onUncaught);
-  emitter.once('close', () => process.off('uncaughtException', onUncaught));
-
   return Object.assign(emitter, {
     kind: 'native',
     async close() {

@@ -63,6 +63,21 @@ function waitForReadyOrError(watcher, label, timeoutMs = 5000) {
     watcher.once('error', onError);
   });
 }
+
+function waitForWatcherError(watcher, label, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      watcher.off('error', onError);
+      reject(new Error(`Timed out waiting for ${label} to error`));
+    }, timeoutMs);
+    function onError(error) {
+      clearTimeout(timer);
+      watcher.off('error', onError);
+      resolve(error instanceof Error ? error : new Error(String(error)));
+    }
+    watcher.once('error', onError);
+  });
+}
 function withControlledOpencodeHome(homeDir, fn) {
   const originalHomedir = os.homedir;
   const originalCodexHome = process.env.CODEX_HOME;
@@ -264,6 +279,37 @@ test('native watcher applies the ignore matcher post-event', { skip: !IS_DARWIN 
     }
   });
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('native watcher keeps valid roots live after another root fails', { skip: !IS_DARWIN }, async () => {
+  const dir = withTmpDir();
+  const validRoot = path.join(dir, 'valid');
+  const invalidRoot = path.join(dir, 'missing');
+  const target = path.join(validRoot, 'session.jsonl');
+  fs.mkdirSync(validRoot, { recursive: true });
+  fs.writeFileSync(target, '{"tokens":1}\n');
+
+  const watcher = createPlatformWatcher({
+    // Keep the broken root first so the test proves that setup failure does
+    // not prevent the later valid root from being registered.
+    dirs: [invalidRoot, validRoot],
+    clients: 'claude',
+    usePolling: false
+  });
+  try {
+    const error = await waitForWatcherError(watcher, 'the invalid root');
+    assert.equal(error.code, 'ENOENT');
+    const seen = waitForEvent(
+      watcher,
+      (_event, filePath) => path.resolve(filePath) === path.resolve(target),
+      'an event from the valid root after the invalid root fails'
+    );
+    fs.appendFileSync(target, '{"tokens":2}\n');
+    await seen;
+  } finally {
+    await watcher.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('native watcher close() resolves cleanly', { skip: !IS_DARWIN }, async () => {
