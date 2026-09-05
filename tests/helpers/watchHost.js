@@ -11,6 +11,13 @@
 // throttling), and that logic is identical on both hosts, so pinning them to
 // the in-process host keeps the coverage exact.
 //
+// The in-process host is the chokidar-based test seam and the production
+// worker-fallback; the macOS native `fs.watch({recursive: true})` optimisation
+// lives in the worker only (see `src/shared/watcherWorker.js` + `nativeWatcher.js`).
+// The platform-aware behaviour is covered separately by
+// `watcherNativeEvents.test.js` and the worker-transport tests in
+// `watcherHost.test.js`.
+//
 // Applied per file rather than per case for the same reason as the source-env
 // guard: a test added later should be hermetic by default, not by remembering.
 // Worker transport itself is covered separately, in watcherHost.test.js.
