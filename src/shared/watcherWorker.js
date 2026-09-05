@@ -36,22 +36,32 @@ function post(message) {
 }
 
 function wire(instance, revision) {
+  // Per-instance rather than one worker-wide flag: a flag would let a
+  // teardown we asked for mask a genuine failure of the watcher that
+  // replaced it. The flag only gates 'ready' — a single broken root out
+  // of many must not suppress events from the valid roots (the collector's
+  // reaction logic is identical for events from any root, and a teardown
+  // here would just hide live work behind a single bad entry in
+  // `watchClientRootsForClients()`'s output). The 'all' handler posts as
+  // long as the watcher instance is still the live one.
+  let failed = false;
   instance.on('all', (event, filePath) => {
-    // Keyed on the live watcher rather than the applied revision: a teardown
-    // has not finished applying the next config yet, so comparing against
-    // appliedRevision would keep forwarding events from roots being released.
     if (revision !== watcherRevision) return;
     post({ type: 'event', revision, event, filePath });
   });
-  instance.on('error', (error) => post({
-    type: 'error',
-    revision,
-    message: error?.message || String(error),
-    code: error?.code || ''
-  }));
+  instance.on('error', (error) => {
+    failed = true;
+    post({
+      type: 'error',
+      revision,
+      message: error?.message || String(error),
+      code: error?.code || ''
+    });
+  });
   instance.on('ready', () => {
     // An initialisation error is not readiness, and a watcher that has
     // since been replaced must not announce itself.
+    if (failed) return;
     if (watcher !== instance || watcherRevision !== revision) return;
     post({ type: 'ready', revision });
   });
