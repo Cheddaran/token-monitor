@@ -32,17 +32,6 @@ test('homeHasData maps an alternate-root marker to its client id', () => {
   assert.deepEqual([...ids], ['kimi']);
 });
 
-test('homeHasData attributes Kilo CLI and extension markers to one client', () => {
-  const home = '\\\\wsl$\\Ubuntu\\home\\u';
-  for (const marker of [
-    '.local\\share\\kilo\\kilo.db',
-    '.config\\Code\\User\\globalStorage\\kilocode.kilo-code\\tasks',
-    '.vscode-server\\data\\User\\globalStorage\\kilocode.kilo-code\\tasks'
-  ]) {
-    assert.deepEqual(homeHasData(home, (p) => p === `${home}\\${marker}`), ['kilo']);
-  }
-});
-
 test('homeHasData maps Proma agent sessions to proma', () => {
   const home = '\\\\wsl$\\Ubuntu\\home\\u';
   const present = new Set([`${home}\\.proma\\agent-sessions`]);
@@ -158,11 +147,11 @@ test('wslUsageHomes returns [] when no distro is running', () => {
 });
 
 // A WSL home that only holds a new A-class client's data (pi, Oh My Pi, zed,
-// Kilo, Command Code, DSH, micode, zcode, kiro, LM Studio) must still be discovered — mirroring the sync
+// kilocode, Command Code, DSH, micode, zcode, kiro, LM Studio) must still be discovered — mirroring the sync
 // point each new tracked client adds (see AGENTS.md "Tracked-client list must
 // stay in sync"). Zed's marker is the threads.db file, not the directory
 // (tokscale checks is_file()).
-test('wslUsageHomes keeps a home whose only tracked-client data is pi, zed, Kilo, Command Code, DSH, micode, zcode, kiro, or LM Studio', () => {
+test('wslUsageHomes keeps a home whose only tracked-client data is pi, zed, kilocode, Command Code, DSH, micode, zcode, kiro, or LM Studio', () => {
   function homesFor(markerRel) {
     return wslUsageHomes({
       platform: 'win32',
@@ -174,11 +163,11 @@ test('wslUsageHomes keeps a home whose only tracked-client data is pi, zed, Kilo
   assert.deepEqual(homesFor('.pi/agent/sessions'), ['\\\\wsl$\\Ubuntu\\home\\alice']);
   assert.deepEqual(homesFor('.omp/agent/sessions'), ['\\\\wsl$\\Ubuntu\\home\\alice']);
   assert.deepEqual(homesFor('.local/share/zed/threads/threads.db'), ['\\\\wsl$\\Ubuntu\\home\\alice']);
-  assert.deepEqual(homesFor('.local/share/kilo/kilo.db'), ['\\\\wsl$\\Ubuntu\\home\\alice']);
   assert.deepEqual(homesFor('.config/Code/User/globalStorage/kilocode.kilo-code/tasks'), ['\\\\wsl$\\Ubuntu\\home\\alice']);
   assert.deepEqual(homesFor('.vscode-server/data/User/globalStorage/kilocode.kilo-code/tasks'), ['\\\\wsl$\\Ubuntu\\home\\alice']);
   assert.deepEqual(homesFor('.commandcode/projects'), ['\\\\wsl$\\Ubuntu\\home\\alice']);
   assert.deepEqual(homesFor('.dsh/sessions'), ['\\\\wsl$\\Ubuntu\\home\\alice']);
+  assert.deepEqual(homesFor('.config/tokscale/headless/mcode'), ['\\\\wsl$\\Ubuntu\\home\\alice']);
   assert.deepEqual(homesFor('.local/share/mimocode/mimocode.db'), ['\\\\wsl$\\Ubuntu\\home\\alice']);
   assert.deepEqual(homesFor('.zcode/projects'), ['\\\\wsl$\\Ubuntu\\home\\alice']);
   assert.deepEqual(homesFor('.zcode/cli/db'), ['\\\\wsl$\\Ubuntu\\home\\alice']);

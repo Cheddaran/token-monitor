@@ -12,7 +12,6 @@ const KNOWN_LIMIT_STATUSES = new Set([
   'sourceRateLimited', 'unavailable', 'error'
 ]);
 const KNOWN_WINDOW_KINDS = new Set(['session', 'daily', 'weekly', 'billing']);
-const KNOWN_LIMIT_BOUNDARY_KINDS = new Set(['reset', 'expiry', 'mixed']);
 const CURRENCIES = Object.freeze({ USD: '$', TWD: 'NT$', HKD: 'HK$', CNY: '¥' });
 
 function finiteNumber(value, fallback = 0) {
@@ -145,8 +144,6 @@ function buildLimitWindow(window) {
   const currency = /^[A-Z]{3,8}$/.test(rawCurrency) ? rawCurrency : null;
   const rawDetail = String(window.detail || '').trim().toLowerCase();
   const detail = rawDetail === 'unlimited' ? rawDetail : null;
-  const rawBoundaryKind = String(window.boundaryKind || '').trim().toLowerCase();
-  const boundaryKind = KNOWN_LIMIT_BOUNDARY_KINDS.has(rawBoundaryKind) ? rawBoundaryKind : '';
   return {
     kind,
     metric,
@@ -154,7 +151,6 @@ function buildLimitWindow(window) {
     usedPercent,
     remainingPercent,
     resetsAt: normalizedIso(window.resetsAt),
-    ...(boundaryKind ? { boundaryKind } : {}),
     windowMinutes: window.windowMinutes === null || window.windowMinutes === undefined
       ? null
       : nonNegativeNumber(window.windowMinutes),

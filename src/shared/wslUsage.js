@@ -13,7 +13,7 @@ const LXSS_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Lxss';
 // stores data there and the home is worth a tokscale scan. These mirror the roots
 // tokscale actually reads (incl. alternate roots: Claude transcripts, Kimi
 // Code, legacy OpenClaw bot dirs) so a home holding only an alternate-root client
-// is still discovered. The `.vscode-server` entries cover Cline / Kilo
+// is still discovered. The `.vscode-server` entries cover Cline / Kilo Code
 // running through the VS Code WSL remote.
 const WSL_DATA_MARKERS = [
   '.claude/projects',
@@ -36,11 +36,13 @@ const WSL_DATA_MARKERS = [
   '.pi/agent/sessions',
   '.omp/agent/sessions',
   '.local/share/zed/threads/threads.db',
-  '.local/share/kilo/kilo.db',
   '.config/Code/User/globalStorage/kilocode.kilo-code/tasks',
   '.vscode-server/data/User/globalStorage/kilocode.kilo-code/tasks',
   '.commandcode/projects',
   '.dsh/sessions',
+  // MiniMax Code headless capture lives under tokscale's own headless root in
+  // the WSL home; without the marker a WSL-only mcode install is never scanned.
+  '.config/tokscale/headless/mcode',
   '.local/share/mimocode/mimocode.db',
   '.zcode/projects',
   '.zcode/cli/db',
@@ -82,11 +84,11 @@ const MARKER_CLIENTS = {
   '.pi/agent/sessions': 'pi',
   '.omp/agent/sessions': 'pi',
   '.local/share/zed/threads/threads.db': 'zed',
-  '.local/share/kilo/kilo.db': 'kilo',
-  '.config/Code/User/globalStorage/kilocode.kilo-code/tasks': 'kilo',
-  '.vscode-server/data/User/globalStorage/kilocode.kilo-code/tasks': 'kilo',
+  '.config/Code/User/globalStorage/kilocode.kilo-code/tasks': 'kilocode',
+  '.vscode-server/data/User/globalStorage/kilocode.kilo-code/tasks': 'kilocode',
   '.commandcode/projects': 'commandcode',
   '.dsh/sessions': 'dsh',
+  '.config/tokscale/headless/mcode': 'mcode',
   '.local/share/mimocode/mimocode.db': 'micode',
   '.zcode/projects': 'zcode',
   '.zcode/cli/db': 'zcode',

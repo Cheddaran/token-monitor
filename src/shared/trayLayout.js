@@ -136,8 +136,7 @@
 
   function normalizeSource(input, fallbackWindow = 'primary') {
     const source = input && typeof input === 'object' ? input : {};
-    const rawProvider = clean(source.provider, 48).toLowerCase();
-    const provider = rawProvider === 'kilocode' ? 'kilo' : rawProvider;
+    const provider = clean(source.provider, 48).toLowerCase();
     const accountMode = clean(source.accountMode, 24);
     const valueMode = clean(source.valueMode, 24);
     const normalized = {

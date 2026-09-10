@@ -43,6 +43,7 @@ const {
 const { withCursorLifecycle } = require('./providers/cursor/lifecycle');
 const { createCursorSelfSync } = require('./providers/cursor/selfSync');
 const { claudeSessionRoots } = require('./providers/claude/paths');
+const { mcodeDesktopSessionsRoot } = require('./mcodeDesktopUsage');
 const { findSessionFiles, codexSessionFile } = require('./sessionFiles');
 const opencodeSession = require('./providers/opencode/session');
 const { buildPromaHistoryGraph, buildPromaPeriods, collectPromaRows } = require('./providers/proma/usage');
@@ -317,8 +318,7 @@ const tokscaleCapabilityResolver = createTokscaleCapabilityResolver({
 // stripped in collectUsageOnce before the filter is built, not dropped here.
 const TOKSCALE_CLIENT_ALIASES = {
   antigravity: ['antigravity-cli'],
-  pi: ['omp'],
-  kilo: ['kilocode']
+  pi: ['omp']
 };
 
 function tokscaleClientFilter(clients) {
@@ -2041,15 +2041,31 @@ function clientSourceRoots(clientsCsv, options = {}) {
   // watcher prunes the rest of this broad app data root below.
   //
   // Only the roots tokscale declares as `PathRoot::XdgData` go through this —
-  // opencode, zed, kilo and micode (clients.rs), plus the CodeBuddy extension
-  // logs it resolves via `dirs::data_local_dir()`. Kiro's CLI database is
-  // deliberately NOT one of them: tokscale spells it as a home-relative literal
+  // opencode, zed and micode (clients.rs), plus the CodeBuddy extension logs it
+  // resolves via `dirs::data_local_dir()`. Kiro's CLI database is deliberately
+  // NOT one of them: tokscale spells it as a home-relative literal
   // (`{home}/.local/share/kiro-cli/data.sqlite3`, scanner.rs), so following XDG
   // there would watch a directory it never reads. The split is upstream's, not
   // an oversight — check clients.rs before adding or removing a root here.
   const xdgHome = xdgDataHome(home);
   add('opencode', ['opencode-data', path.join(xdgHome, 'opencode')]);
   add('openclaw', ['openclaw-agents', path.join(home, '.openclaw', 'agents')]);
+  // MiniMax Code: tokscale 4.13.0 captures `mcode exec --output-format
+  // stream-json` streams under its own headless roots (TOKSCALE_HEADLESS_DIR
+  // or the `<home>/.config/tokscale/headless` + Application Support pair),
+  // and never scans MiniMax Code's shared Desktop/Runtime session store
+  // where the originating surface is not distinguishable. The roots are
+  // `optional` because nobody has them unless they opted into a capture
+  // workflow, so the diagnostics panel hides them while absent; watching
+  // them gives seconds-level refresh when a new capture lands. The Desktop
+  // app's own session store (`~/.minimax/v2/sessions/.../messages.jsonl`)
+  // is read by `mcodeDesktopUsage.js` and contributes to the same client
+  // id, so a single `add()` covers both surfaces.
+  add(
+    'mcode',
+    ...tokscaleHeadlessRoots(home).map(({ dir, optional }) => ['mcode-headless', path.join(dir, 'mcode'), null, optional]),
+    ['mcode-desktop-sessions', mcodeDesktopSessionsRoot({ homeDir: home })]
+  );
   // Tokscale resolves these two caches differently and the split is deliberate
   // upstream, so mirror it rather than picking whichever looks tidier:
   //   cursor.rs      — `home_dir().join(".config/tokscale/cursor-cache")`, a
@@ -2118,14 +2134,13 @@ function clientSourceRoots(clientsCsv, options = {}) {
     ['zed-threads', path.join(home, 'Library', 'Application Support', 'Zed', 'threads')],
     ['zed-threads', path.join(process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local'), 'Zed', 'threads')]
   );
-  // Kilo is one Token Monitor client backed by two Tokscale sources. `kilo`
-  // reads the CLI's XDG-data SQLite database, while `kilocode` reads the VS Code
-  // extension's Linux/local and remote task roots. Keep the native macOS and
-  // Windows VS Code roots out until Tokscale scans them; otherwise they would be
-  // dead watches and false presence signals.
+  // Kilo Code (VS Code ext): tokscale 3.1.3 only scans the Linux .config root and
+  // the .vscode-server (remote) root for KiloCode — unlike Cline, it does NOT scan
+  // the native macOS Application Support / Windows %APPDATA% roots. Watching those
+  // would be dead watches + a false "waiting" status, so we mirror exactly what
+  // tokscale reads. (Native mac/win support pending upstream tokscale.)
   add(
-    'kilo',
-    ['kilo-db', path.join(xdgHome, 'kilo'), path.join(xdgHome, 'kilo', 'kilo.db')],
+    'kilocode',
     ['kilocode-tasks', path.join(home, '.config', 'Code', 'User', 'globalStorage', 'kilocode.kilo-code', 'tasks')],
     ['kilocode-tasks', path.join(home, '.vscode-server', 'data', 'User', 'globalStorage', 'kilocode.kilo-code', 'tasks')]
   );
