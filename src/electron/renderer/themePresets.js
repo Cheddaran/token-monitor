@@ -61,9 +61,9 @@
   // listed here but present in clientColors are appended after these, then the
   // synthetic "default" fallback is shown last.
   const VENDOR_ORDER = [
-    'claude', 'codex', 'opencode', 'hermes', 'openclaw', 'cursor', 'antigravity', 'cline',
-    'amp', 'droid', 'kimi', 'qwen', 'grok', 'copilot', 'pi', 'zed', 'kilo', 'commandcode', 'micode', 'zcode', 'kiro', 'codebuddy', 'workbuddy', 'proma', 'qodercn', 'reasonix', 'dsh', 'cherrystudio', 'lmstudio', 'unsloth',
-    'openrouter', 'gemini', 'qoder', 'deepseek', 'xai', 'meta', 'mistral', 'moonshot', 'zai', 'zaiteam', 'cohere', 'xiaomi', 'minimax', 'doubao', 'hunyuan', 'volcengine', 'ollama', 'trae', 'alibaba', 'thirdparty'
+    'claude', 'codex', 'hermes', 'opencode', 'openrouter', 'openclaw', 'cline', 'cursor',
+    'gemini', 'antigravity', 'kimi', 'qwen', 'grok', 'copilot', 'pi', 'zed', 'kilocode', 'commandcode', 'mcode', 'micode', 'zcode', 'kiro', 'codebuddy', 'workbuddy', 'proma', 'qodercn', 'qoder', 'reasonix', 'dsh', 'cherrystudio', 'lmstudio', 'unsloth', 'deepseek', 'xai', 'meta', 'mistral',
+    'moonshot', 'zai', 'zaiteam', 'cohere', 'xiaomi', 'minimax', 'doubao', 'hunyuan', 'volcengine', 'ollama', 'trae', 'alibaba', 'thirdparty'
   ];
 
   // Display labels for every vendor in the clientColors map. The widget also
@@ -72,21 +72,20 @@
   const VENDOR_LABELS = {
     claude: 'Claude Code',
     codex: 'Codex',
-    opencode: 'OpenCode',
     hermes: 'Hermes Agent',
+    opencode: 'OpenCode',
+    openrouter: 'OpenRouter',
     openclaw: 'OpenClaw',
-    cursor: 'Cursor',
-    antigravity: 'Antigravity',
     cline: 'Cline',
-    amp: 'Amp',
-    droid: 'Factory Droid',
+    cursor: 'Cursor',
+    gemini: 'Gemini',
+    antigravity: 'Antigravity',
     kimi: 'Kimi',
-    qwen: 'Qwen',
     grok: 'Grok Build',
     copilot: 'GitHub Copilot',
     pi: 'Pi',
     zed: 'Zed',
-    kilo: 'Kilo',
+    kilocode: 'Kilo Code',
     commandcode: 'Command Code',
     micode: 'MiMo Code',
     zcode: 'ZCode',
@@ -99,14 +98,13 @@
     dsh: 'DeepSeek Harness',
     cherrystudio: 'Cherry Studio',
     lmstudio: 'LM Studio',
+    mcode: 'MiniMax Code',
     unsloth: 'Unsloth',
-    openrouter: 'OpenRouter',
-    gemini: 'Gemini',
-    qoder: 'Qoder',
     deepseek: 'DeepSeek',
     xai: 'xAI',
     meta: 'Meta',
     mistral: 'Mistral',
+    qwen: 'Qwen',
     moonshot: 'Moonshot',
     zai: 'GLM',
     zaiteam: 'GLM Team',
@@ -116,6 +114,7 @@
     doubao: 'Doubao',
     hunyuan: 'Hunyuan',
     volcengine: 'Volcengine',
+    qoder: 'Qoder',
     trae: 'Trae CN',
     ollama: 'Ollama',
     alibaba: 'Alibaba Cloud',

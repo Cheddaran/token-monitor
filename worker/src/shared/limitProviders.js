@@ -41,14 +41,13 @@
     { id: 'opencode', label: 'OpenCode' },
     { id: 'cursor', label: 'Cursor' },
     { id: 'antigravity', label: 'Antigravity' },
-    { id: 'factory', label: 'Factory Droid' },
     { id: 'kimi', label: 'Kimi' },
     { id: 'grok', label: 'Grok' },
     { id: 'copilot', label: 'GitHub Copilot' },
     { id: 'zed', label: 'Zed' },
     { id: 'commandcode', label: 'Command Code' },
     { id: 'mimo', label: 'MiMo' },
-    { id: 'zai', label: 'GLM', settingsLabel: 'Z.ai / GLM' },
+    { id: 'zai', label: 'GLM' },
     { id: 'zaiteam', label: 'GLM Team' },
     { id: 'kiro', label: 'Kiro' },
     { id: 'workbuddy', label: 'WorkBuddy' },
@@ -71,7 +70,6 @@
   // Collection client ids normally match their Limits provider id. Keep the
   // exceptions explicit here.
   const LIMIT_PROVIDER_BY_CLIENT = Object.freeze({
-    droid: 'factory',
     micode: 'mimo',
     zcode: 'zai',
     qodercn: 'qoder'

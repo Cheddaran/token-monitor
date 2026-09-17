@@ -40,7 +40,7 @@ test('clientsCsvForSetting uses defaults only for missing settings', () => {
 
 test('default tracked clients include current tokscale-supported tools', () => {
   const clients = DEFAULT_CLIENTS.split(',');
-  for (const client of ['cline', 'amp', 'droid', 'kimi', 'qwen', 'grok', 'copilot', 'pi', 'zed', 'kilo', 'commandcode', 'zcode', 'kiro', 'codebuddy', 'workbuddy', 'reasonix', 'dsh', 'cherrystudio', 'lmstudio', 'unsloth']) {
+  for (const client of ['cline', 'kimi', 'qwen', 'grok', 'copilot', 'pi', 'zed', 'kilocode', 'commandcode', 'zcode', 'kiro', 'codebuddy', 'workbuddy', 'reasonix', 'dsh', 'cherrystudio', 'lmstudio', 'mcode', 'unsloth']) {
     assert.ok(clients.includes(client), `${client} should be tracked by default`);
   }
 });
@@ -73,16 +73,6 @@ test('tracked client defaults and README share one display order', () => {
   assert.deepEqual(DEFAULT_CLIENTS.split(','), known.filter((client) => !['micode', 'qodercn'].includes(client)));
 });
 
-test('documented client CSV follows the canonical catalog order', () => {
-  const envExample = fs.readFileSync(path.join(rootDir, '.env.example'), 'utf8');
-  const documented = envExample.match(/^TOKEN_MONITOR_CLIENTS=(.*)$/m)?.[1].split(',') || [];
-  const documentedSet = new Set(documented);
-  assert.deepEqual(
-    documented,
-    KNOWN_CLIENTS.split(',').filter((id) => documentedSet.has(id))
-  );
-});
-
 // "default tracked clients are supported by tokscale or a native adapter" —
 // this contract lives in scripts/verify-vendored-tokscale-clients.js instead
 // of here. It has to run against the real vendored tokscale binary
@@ -98,5 +88,4 @@ test('clientsCsvForSetting preserves explicit empty tracked-tool selection', () 
 
 test('clientsCsvForSetting normalizes saved client csv values', () => {
   assert.equal(clientsCsvForSetting(' Claude , Codex,,hermes '), 'claude,codex,hermes');
-  assert.equal(clientsCsvForSetting('kilocode,kilo'), 'kilo');
 });

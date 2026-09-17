@@ -20,8 +20,6 @@ const kiroLimits = require('../providers/kiro/limits');
 const { parseKiroUsage, fetchKiroLimits } = kiroLimits;
 const zaiLimits = require('../providers/zai/limits');
 const { zaiToken, zaiRegion, fetchZaiLimits } = zaiLimits;
-const factoryLimits = require('../providers/factory/limits');
-const { factoryEnvApiKey, fetchFactoryLimits, resolveFactoryAutomaticApiKey } = factoryLimits;
 const zaiTeamLimits = require('../providers/zaiteam/limits');
 const { fetchZaiTeamLimits, zaiTeamToken } = zaiTeamLimits;
 const volcengineLimits = require('../providers/volcengine/limits');
@@ -125,28 +123,27 @@ function providerFetchers(deps = {}) {
   return {
     claude: (providerOptions, probeDeps) => fetchClaudeLimits(providerOptions, probeDeps),
     codex: (providerOptions, probeDeps) => fetchCodexLimits(providerOptions, probeDeps),
-    opencode: (providerOptions, probeDeps) => fetchOpenCodeLimits(providerOptions, probeDeps),
     cursor: (providerOptions, probeDeps) => fetchCursorLimits(providerOptions, probeDeps),
     antigravity: (providerOptions, probeDeps) => fetchAntigravityLimits(providerOptions, probeDeps),
-    factory: (providerOptions, probeDeps) => fetchFactoryLimits(providerOptions, probeDeps),
-    kimi: (providerOptions, probeDeps) => kimiLimits.fetchKimiLimits(providerOptions, probeDeps),
+    opencode: (providerOptions, probeDeps) => fetchOpenCodeLimits(providerOptions, probeDeps),
+    openrouter: (providerOptions, probeDeps) => openrouterLimits.fetchOpenRouterLimits(providerOptions, probeDeps),
+    deepseek: (providerOptions, probeDeps) => fetchDeepSeekLimits(providerOptions, probeDeps),
+    minimax: (providerOptions, probeDeps) => minimaxLimits.fetchMinimaxLimits(providerOptions, probeDeps),
+    mimo: (providerOptions, probeDeps) => fetchMimoLimits(providerOptions, probeDeps),
     grok: (providerOptions, probeDeps) => grokLimits.fetchGrokLimits(providerOptions, probeDeps),
     copilot: (providerOptions, probeDeps) => copilotLimits.fetchCopilotLimits(providerOptions, probeDeps),
-    zed: (providerOptions, probeDeps) => zedLimits.fetchZedLimits(providerOptions, probeDeps),
-    commandcode: (providerOptions, probeDeps) => commandcodeLimits.fetchCommandcodeLimits(providerOptions, probeDeps),
-    mimo: (providerOptions, probeDeps) => fetchMimoLimits(providerOptions, probeDeps),
+    kiro: (providerOptions, probeDeps) => kiroLimits.fetchKiroLimits(providerOptions, probeDeps),
     zai: (providerOptions, probeDeps) => zaiLimits.fetchZaiLimits(providerOptions, probeDeps),
     zaiteam: (providerOptions, probeDeps) => zaiTeamLimits.fetchZaiTeamLimits(providerOptions, probeDeps),
-    kiro: (providerOptions, probeDeps) => kiroLimits.fetchKiroLimits(providerOptions, probeDeps),
-    workbuddy: (providerOptions, probeDeps) => workbuddyLimits.fetchWorkbuddyLimits(providerOptions, probeDeps),
-    qoder: (providerOptions, probeDeps) => qoderLimits.fetchQoderLimits(providerOptions, probeDeps),
-    deepseek: (providerOptions, probeDeps) => fetchDeepSeekLimits(providerOptions, probeDeps),
-    openrouter: (providerOptions, probeDeps) => openrouterLimits.fetchOpenRouterLimits(providerOptions, probeDeps),
-    minimax: (providerOptions, probeDeps) => minimaxLimits.fetchMinimaxLimits(providerOptions, probeDeps),
     volcengine: (providerOptions, probeDeps) => volcengineLimits.fetchVolcengineLimits(providerOptions, probeDeps),
-    ollama: (providerOptions, probeDeps) => ollamaLimits.fetchOllamaLimits(providerOptions, probeDeps),
-    trae: (providerOptions, probeDeps) => traeLimits.fetchTraeLimits(providerOptions, probeDeps),
     alibaba: (providerOptions, probeDeps) => alibabaLimits.fetchAlibabaLimits(providerOptions, probeDeps),
+    commandcode: (providerOptions, probeDeps) => commandcodeLimits.fetchCommandcodeLimits(providerOptions, probeDeps),
+    qoder: (providerOptions, probeDeps) => qoderLimits.fetchQoderLimits(providerOptions, probeDeps),
+    trae: (providerOptions, probeDeps) => traeLimits.fetchTraeLimits(providerOptions, probeDeps),
+    workbuddy: (providerOptions, probeDeps) => workbuddyLimits.fetchWorkbuddyLimits(providerOptions, probeDeps),
+    ollama: (providerOptions, probeDeps) => ollamaLimits.fetchOllamaLimits(providerOptions, probeDeps),
+    kimi: (providerOptions, probeDeps) => kimiLimits.fetchKimiLimits(providerOptions, probeDeps),
+    zed: (providerOptions, probeDeps) => zedLimits.fetchZedLimits(providerOptions, probeDeps),
     thirdparty: (providerOptions, probeDeps) => thirdPartyLimits.fetchThirdPartyLimits(providerOptions, probeDeps),
     ...(deps.providerFetchers || {})
   };
@@ -319,9 +316,6 @@ module.exports = {
   parseKiroUsage,
   fetchKiroLimits,
   zaiToken,
-  factoryEnvApiKey,
-  fetchFactoryLimits,
-  resolveFactoryAutomaticApiKey,
   zaiRegion,
   fetchZaiLimits,
   zaiTeamToken,

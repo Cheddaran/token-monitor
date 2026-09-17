@@ -83,29 +83,6 @@ function normalizeCodexResetForecast(payload, options = {}) {
   }
 
   const data = objectValue(payload.data, payload);
-  const scheduledReset = objectValue(
-    data.scheduledReset,
-    data.scheduled_reset,
-    payload.scheduledReset,
-    payload.scheduled_reset
-  );
-  const scheduledStatus = String(scheduledReset.status || '').trim().toLowerCase();
-  const hasScheduledReset = scheduledStatus === 'scheduled';
-  const scheduledFor = isoDate(firstDefined(
-    scheduledReset.scheduledFor,
-    scheduledReset.scheduled_for
-  ));
-  const scheduledAnnouncedAt = isoDate(firstDefined(
-    scheduledReset.announcedAt,
-    scheduledReset.announced_at
-  ));
-  const scheduledResetTypeValue = String(firstDefined(
-    scheduledReset.resetType,
-    scheduledReset.reset_type
-  ) || '').trim().toLowerCase();
-  const scheduledResetType = ['banked', 'regular'].includes(scheduledResetTypeValue)
-    ? scheduledResetTypeValue
-    : '';
   const explicitlyNoActiveWatch = [data, payload].some((container) => (
     Object.hasOwn(container, 'activeWatch') && container.activeWatch === null
   ) || (
@@ -125,7 +102,7 @@ function normalizeCodexResetForecast(payload, options = {}) {
     payload.prediction
   );
   const forecast = objectValue(watch.forecast, watch.prediction, watch);
-  const watchSource = objectValue(
+  const source = objectValue(
     watch.source,
     watch.signal,
     watch.sourcePost,
@@ -135,8 +112,6 @@ function normalizeCodexResetForecast(payload, options = {}) {
     forecast.source,
     data.source
   );
-  const scheduledSource = objectValue(scheduledReset.source);
-  const source = hasScheduledReset ? scheduledSource : watchSource;
   const explicitlyActive = optionalBoolean(firstDefined(
     watch.active,
     watch.isActive,
@@ -246,7 +221,7 @@ function normalizeCodexResetForecast(payload, options = {}) {
     source.username
   ) || '').trim().slice(0, 80);
   const hasPrediction = chancePercent !== null || Boolean(predictedAt);
-  const recognized = hasScheduledReset || explicitlyNoActiveWatch || explicitlyActive !== null || hasPrediction;
+  const recognized = explicitlyNoActiveWatch || explicitlyActive !== null || hasPrediction;
   if (!recognized) {
     return {
       status: 'unavailable',
@@ -263,13 +238,12 @@ function normalizeCodexResetForecast(payload, options = {}) {
     : (explicitlyActive === null ? hasPrediction : explicitlyActive);
 
   return forecastAtTime({
-    status: hasScheduledReset ? 'scheduled' : (active ? 'active' : 'inactive'),
+    status: active ? 'active' : 'inactive',
     chancePercent,
     predictedAt,
     expiresAt,
     observedAt,
     sourceAuthor,
-    ...(hasScheduledReset ? { scheduledFor, scheduledAnnouncedAt, scheduledResetType } : {}),
     latestResetAt,
     latestResetType,
     checkedAt,

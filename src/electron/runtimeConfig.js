@@ -8,7 +8,6 @@ const {
   parseLimitProviders
 } = require('../shared/limits/collector');
 const { normalizeSyncUploadIntervalMs } = require('../shared/syncUploadInterval');
-const { normalizeCustomScanPaths } = require('../shared/customScanPaths');
 
 const DEFAULT_ALL_TIME_SINCE = '2024-01-01';
 
@@ -31,7 +30,6 @@ const MODE_STRUCTURAL_KEYS = Object.freeze([
 ]);
 const USAGE_STRUCTURAL_KEYS = Object.freeze([
   'clients',
-  'customScanPaths',
   'allTimeSince',
   'collectionIntervalMs',
   'collectionMode',
@@ -46,7 +44,6 @@ const USAGE_STRUCTURAL_KEYS = Object.freeze([
 // Values arrive from usageConfigFromSettings() after mode-specific normalization.
 const USAGE_CONFIG_FINGERPRINT_KEYS = Object.freeze([
   'clients',
-  'customScanPaths',
   'allTimeSince',
   'intervalMs',
   'historyEnabled',
@@ -71,31 +68,30 @@ const LIMITS_RECONFIGURE_KEYS = Object.freeze([
 const SINK_STRUCTURAL_KEYS = Object.freeze(['syncUploadIntervalMs']);
 const LIMIT_PROVIDER_SETTING_KEYS = Object.freeze({
   claude: ['claudeWebCookie'],
-  codex: ['codexManagedAccounts'],
-  opencode: ['opencodeCookie', 'opencodeProfiles', 'opencodeLocalLimitsEnabled'],
   cursor: ['cursorDisabledAccountIds'],
-  factory: ['factoryApiKey'],
-  kimi: ['kimiApiKey', 'kimiWebAccessToken'],
+  opencode: ['opencodeCookie', 'opencodeProfiles', 'opencodeLocalLimitsEnabled'],
+  openrouter: ['openrouterProfiles'],
+  deepseek: ['deepseekApiKey'],
+  minimax: ['minimaxApiKey'],
   copilot: ['copilotApiToken', 'copilotEnterpriseHost'],
-  zed: ['zedCookie'],
-  commandcode: ['commandcodeCookie'],
-  mimo: ['mimoManagedAccounts'],
   zai: ['zaiApiKey', 'zaiApiRegion'],
   zaiteam: ['zaiTeamApiKey', 'zaiTeamOrganizationId', 'zaiTeamProjectId'],
-  // The desktop widget auto-detects WorkBuddy when the provider itself is
-  // enabled. Token and metadata fields remain available to headless/CLI deployments.
-  workbuddy: ['workbuddyAccessToken', 'workbuddyUserId', 'workbuddyEnterpriseId', 'workbuddyLocale', 'workbuddyDomain', 'workbuddyDepartmentInfo'],
-  qoder: ['qoderCookie', 'qoderSite'],
-  deepseek: ['deepseekApiKey'],
-  openrouter: ['openrouterProfiles'],
-  minimax: ['minimaxApiKey'],
   volcengine: [
     'volcengineAccessKeyId', 'volcengineSecretAccessKey', 'volcengineRegion',
     'volcengineAgentAccessKeyId', 'volcengineAgentSecretAccessKey', 'volcengineAgentRegion'
   ],
-  ollama: ['ollamaCookie'],
-  trae: ['traeAccessToken', 'traeDeviceId'],
   alibaba: ['alibabaCookie', 'alibabaVariant'],
+  qoder: ['qoderCookie', 'qoderSite'],
+  trae: ['traeAccessToken', 'traeDeviceId'],
+  zed: ['zedCookie'],
+  // The desktop widget auto-detects WorkBuddy when the provider itself is
+  // enabled. Token and metadata fields remain available to headless/CLI deployments.
+  workbuddy: ['workbuddyAccessToken', 'workbuddyUserId', 'workbuddyEnterpriseId', 'workbuddyLocale', 'workbuddyDomain', 'workbuddyDepartmentInfo'],
+  commandcode: ['commandcodeCookie'],
+  kimi: ['kimiApiKey', 'kimiWebAccessToken'],
+  ollama: ['ollamaCookie'],
+  codex: ['codexManagedAccounts'],
+  mimo: ['mimoManagedAccounts'],
   thirdparty: ['thirdPartyProfiles']
 });
 
@@ -124,7 +120,6 @@ function normalizeAllTimeSince(value, fallback = DEFAULT_ALL_TIME_SINCE) {
 function usageConfigFromSettings(settings = {}, context = {}) {
   return {
     clients: clientsCsvForSetting(settings.clients),
-    customScanPaths: normalizeCustomScanPaths(settings.customScanPaths),
     allTimeSince: normalizeAllTimeSince(settings.allTimeSince),
     commandTimeoutMs: Number(context.commandTimeoutMs || 120 * 1000),
     deviceId: settings.deviceId || context.defaultDeviceId,
@@ -180,7 +175,6 @@ function limitsConfigFromSettings(settings = {}, context = {}) {
     minimaxApiKey: settings.minimaxApiKey || '',
     copilotApiToken: settings.copilotApiToken || '',
     copilotEnterpriseHost: settings.copilotEnterpriseHost || '',
-    factoryApiKey: settings.factoryApiKey || '',
     zaiApiKey: settings.zaiApiKey || '',
     zaiApiRegion: settings.zaiApiRegion || 'global',
     zaiTeamApiKey: settings.zaiTeamApiKey || '',

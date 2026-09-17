@@ -306,9 +306,7 @@ test('countOverall tallies by headline state', () => {
 // files for a reason (one needs `fs`, the other ships to the Worker), so nothing
 // but this test stops a new client's root from being silently dropped on ingest.
 test('every source-root id the collector emits is in the allowlist', () => {
-  const roots = clientSourceRoots(KNOWN_CLIENTS, {
-    customScanPaths: { codex: [path.resolve('tmp', 'codex-extra')] }
-  });
+  const roots = clientSourceRoots(KNOWN_CLIENTS);
   const emitted = new Set();
   for (const entries of Object.values(roots)) {
     for (const { id, dir } of entries) {
@@ -440,13 +438,6 @@ test('clientSourceChecks collapses same-kind roots into one entry', () => {
   for (const list of Object.values(checks)) {
     for (const check of list) assert.equal(typeof check.exists, 'boolean');
   }
-});
-
-test('Kilo source health covers its CLI database and extension tasks', () => {
-  assert.deepEqual(
-    clientSourceChecks('kilo').kilo.map((check) => check.id),
-    ['kilo-db', 'kilocode-tasks']
-  );
 });
 
 test('Qoder CN source health requires local.db, not only its watch parent', () => {

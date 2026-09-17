@@ -51,9 +51,7 @@ test('main default settings use the default view display preferences', () => {
   const mainSource = fs.readFileSync(path.join(__dirname, '../../src/electron/main.js'), 'utf8');
   assert.match(mainSource, /defaultViewDisplayPreferences/);
   assert.match(mainSource, /hiddenViews:\s*defaultViewDisplayPreferences\(\)\.hiddenViews/);
-  // On by default since the scan itself reports which workspace a session ran
-  // in: enabling projects no longer means reopening every transcript to find one.
-  assert.match(mainSource, /projectsEnabled:\s*parseBoolean\(process\.env\.TOKEN_MONITOR_PROJECTS_ENABLED, true\)/);
+  assert.match(mainSource, /projectsEnabled:\s*parseBoolean\(process\.env\.TOKEN_MONITOR_PROJECTS_ENABLED, false\)/);
 });
 
 test('main default settings include independent Home module preferences', () => {

@@ -75,9 +75,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-26
+          - os: macos-15
             arch: arm64
-          - os: macos-26-intel
+          - os: macos-15-intel
             arch: x64
           - os: windows-latest
             arch: x64

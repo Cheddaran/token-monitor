@@ -23,25 +23,8 @@ const DEFAULT_CLIENTS = DEFAULT_CLIENT_IDS.join(',');
 // opt-in client's prefs survive a round-trip instead of being silently dropped.
 const KNOWN_CLIENTS = CLIENT_IDS.join(',');
 
-const LEGACY_CLIENT_ID_ALIASES = Object.freeze({
-  kilocode: 'kilo'
-});
-
-function normalizeTrackedClientId(value) {
-  const id = String(value || '').trim().toLowerCase();
-  return LEGACY_CLIENT_ID_ALIASES[id] || id;
-}
-
 function normalizeClientsCsv(value) {
-  const seen = new Set();
-  const clients = [];
-  for (const part of String(value ?? '').split(',')) {
-    const client = normalizeTrackedClientId(part);
-    if (!client || seen.has(client)) continue;
-    seen.add(client);
-    clients.push(client);
-  }
-  return clients.join(',');
+  return String(value ?? '').split(',').map((client) => client.trim().toLowerCase()).filter(Boolean).join(',');
 }
 
 function clientsCsvForSetting(value, fallback = DEFAULT_CLIENTS) {
@@ -54,6 +37,5 @@ module.exports = {
   PARSE_LOCAL_CLIENTS,
   KNOWN_CLIENTS,
   clientsCsvForSetting,
-  normalizeClientsCsv,
-  normalizeTrackedClientId
+  normalizeClientsCsv
 };

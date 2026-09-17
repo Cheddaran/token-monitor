@@ -28,17 +28,10 @@ function findSessionFiles(root, sessionIds) {
   return found;
 }
 
-function codexHomeDir(home, options = {}) {
-  const env = options.env || process.env;
-  const configured = options.useEnvRoots !== false ? String(env.CODEX_HOME || '').trim() : '';
-  return configured ? path.resolve(configured) : path.join(home, '.codex');
-}
-
-function codexSessionFile(home, sessionId, options = {}) {
+function codexSessionFile(home, sessionId) {
   const match = String(sessionId || '').match(/^rollout-(\d{4})-(\d{2})-(\d{2})T/);
   if (!match) return '';
-  const codexHome = options.codexHome || codexHomeDir(home, options);
-  const filePath = path.join(codexHome, 'sessions', match[1], match[2], match[3], `${sessionId}.jsonl`);
+  const filePath = path.join(home, '.codex', 'sessions', match[1], match[2], match[3], `${sessionId}.jsonl`);
   try { return fs.statSync(filePath).isFile() ? filePath : ''; } catch (_) { return ''; }
 }
 
@@ -56,10 +49,9 @@ function resolveSessionFile(client, sessionId, home, options = {}) {
     return findSessionFiles(transcripts, [id]).get(id) || '';
   }
   if (client === 'codex') {
-    const codexHome = options.codexHome || codexHomeDir(home, options);
-    const direct = codexSessionFile(home, id, { codexHome });
+    const direct = codexSessionFile(home, id);
     if (direct) return direct;
-    return findSessionFiles(path.join(codexHome, 'sessions'), [id]).get(id) || '';
+    return findSessionFiles(path.join(home, '.codex', 'sessions'), [id]).get(id) || '';
   }
   return '';
 }

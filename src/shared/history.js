@@ -5,8 +5,7 @@
 const { REASONIX_CLIENT } = require('./providers/reasonix/paths');
 
 const TOKSCALE_CLIENT_ALIASES = new Map([
-  ['omp', 'pi'],
-  ['kilocode', 'kilo']
+  ['omp', 'pi']
 ]);
 
 // Canonical Token Monitor identity for client ids emitted by Tokscale. Keep
@@ -39,7 +38,7 @@ function normalizeTimeMetrics(value) {
 
 // Tokscale emits these clients' reasoning as a disjoint JSON bucket. History
 // uses the same reasoning-inclusive public output convention as usage.js.
-const TOKSCALE_DISJOINT_REASONING_CLIENTS = new Set([REASONIX_CLIENT, 'codex', 'droid', 'dsh']);
+const TOKSCALE_DISJOINT_REASONING_CLIENTS = new Set([REASONIX_CLIENT, 'codex', 'dsh']);
 
 function hasDisjointReasoning(client) {
   return TOKSCALE_DISJOINT_REASONING_CLIENTS.has(String(client).trim().toLowerCase());

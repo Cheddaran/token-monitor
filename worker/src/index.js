@@ -1,40 +1,21 @@
 import { publicLimits } from './shared/limits/core.js';
 import subscriptionDisplay from './shared/subscriptionDisplay.js';
 import currency from './shared/currency.js';
-import {
-  aggregateDevices,
-  mergeDeviceRecord,
-  aggregateHistory,
-  stripSessionTextFromDeviceRecord
-} from './shared/usage.js';
+import { aggregateDevices, mergeDeviceRecord, aggregateHistory } from './shared/usage.js';
 import { DEFAULT_STALE_AFTER_MS } from './shared/syncUploadInterval.js';
 import { deviceHistoryRevision, historyPreview, historyRevision } from './shared/history.js';
 import hubBuildIdentity from './shared/hubBuildIdentity.js';
-import hubProtocol from './shared/hubProtocol.js';
 
 const CORS_HEADERS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET,POST,PUT,DELETE,OPTIONS',
-  'access-control-allow-headers': 'authorization,content-type,x-token-monitor-secret,x-token-monitor-response,x-token-monitor-stream'
+  'access-control-allow-headers': 'authorization,content-type,x-token-monitor-secret'
 };
 
-function jsonResponse(status, payload, extra = {}, request = null) {
-  const body = JSON.stringify(payload);
-  const shouldCompress = hubProtocol.acceptsEncoding(request, 'gzip')
-    && new TextEncoder().encode(body).byteLength >= 1024;
-  const responseBody = shouldCompress
-    ? new Blob([body]).stream().pipeThrough(new CompressionStream('gzip'))
-    : body;
-  return new Response(responseBody, {
+function jsonResponse(status, payload, extra = {}) {
+  return new Response(JSON.stringify(payload, null, 2), {
     status,
-    headers: {
-      'content-type': 'application/json; charset=utf-8',
-      'cache-control': 'no-store',
-      ...(shouldCompress ? { 'content-encoding': 'gzip', vary: 'accept-encoding' } : {}),
-      ...CORS_HEADERS,
-      ...extra
-    },
-    ...(shouldCompress ? { encodeBody: 'manual' } : {})
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store, no-transform', ...CORS_HEADERS, ...extra }
   });
 }
 
@@ -79,8 +60,6 @@ export class HubDO {
     this.env = env;
     this.sseClients = new Set();
     this.heartbeatTimer = null;
-    this.broadcastTimer = null;
-    this.lastSseContentKey = '';
     this.encoder = new TextEncoder();
   }
 
@@ -139,8 +118,8 @@ export class HubDO {
     if (this.heartbeatTimer || this.sseClients.size === 0) return;
     this.heartbeatTimer = setInterval(() => {
       const chunk = this.encoder.encode(': hb\n\n');
-      for (const client of this.sseClients) {
-        client.writer.write(chunk).catch(() => this.dropClient(client));
+      for (const writer of this.sseClients) {
+        writer.write(chunk).catch(() => this.dropClient(writer));
       }
       if (this.sseClients.size === 0 && this.heartbeatTimer) {
         clearInterval(this.heartbeatTimer);
@@ -149,65 +128,24 @@ export class HubDO {
     }, 30000);
   }
 
-  dropClient(client) {
-    this.sseClients.delete(client);
-    try { client.writer.close(); } catch (_) {}
+  dropClient(writer) {
+    this.sseClients.delete(writer);
+    try { writer.close(); } catch (_) {}
     if (this.sseClients.size === 0 && this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
-    if (this.sseClients.size === 0) {
-      this.lastSseContentKey = '';
-      if (this.broadcastTimer) clearTimeout(this.broadcastTimer);
-      this.broadcastTimer = null;
-    }
-  }
-
-  writeClient(client, event, data) {
-    client.writer.write(this.encoder.encode(sseFormat(event, data))).catch(() => this.dropClient(client));
   }
 
   async broadcast(reason = 'update') {
-    if (this.broadcastTimer) clearTimeout(this.broadcastTimer);
-    this.broadcastTimer = null;
     if (this.sseClients.size === 0) return;
     const stats = await this.statsWithSubscriptionVersion();
-    this.lastSseContentKey = hubProtocol.hubStatsContentKey(stats);
-    const at = new Date().toISOString();
-    for (const client of this.sseClients) {
-      this.writeClient(client, 'stats', { type: 'stats', reason, stats, at });
+    const payload = this.encoder.encode(sseFormat('stats', {
+      type: 'stats', reason, stats, at: new Date().toISOString()
+    }));
+    for (const writer of this.sseClients) {
+      writer.write(payload).catch(() => this.dropClient(writer));
     }
-  }
-
-  async flushBroadcast() {
-    this.broadcastTimer = null;
-    if (this.sseClients.size === 0) return;
-    const stats = await this.statsWithSubscriptionVersion();
-    const nextContentKey = hubProtocol.hubStatsContentKey(stats);
-    const at = new Date().toISOString();
-    if (!this.lastSseContentKey || nextContentKey !== this.lastSseContentKey) {
-      this.lastSseContentKey = nextContentKey;
-      for (const client of this.sseClients) {
-        this.writeClient(client, 'stats', { type: 'stats', reason: 'ingest', stats, at });
-      }
-      return;
-    }
-    const event = hubProtocol.freshnessEvent(stats, 'ingest', at);
-    for (const client of this.sseClients) {
-      if (client.freshnessEvents) {
-        this.writeClient(client, 'freshness', event);
-      } else {
-        this.writeClient(client, 'stats', { type: 'stats', reason: 'ingest', stats, at });
-      }
-    }
-  }
-
-  queueBroadcast() {
-    if (this.sseClients.size === 0 || this.broadcastTimer) return;
-    this.broadcastTimer = setTimeout(() => {
-      this.broadcastTimer = null;
-      void this.flushBroadcast().catch(() => {});
-    }, 100);
   }
 
   async fetch(request) {
@@ -224,7 +162,7 @@ export class HubDO {
         deviceCount: devices.length,
         secretRequired: Boolean(this.secret),
         now: new Date().toISOString()
-      }, {}, request);
+      });
     }
 
     if ((request.method === 'GET' || request.method === 'HEAD') && url.pathname === '/api/public/stats') {
@@ -239,7 +177,7 @@ export class HubDO {
         limits: publicLimits(limits),
         periods: publicPeriods(periods),
         ...rest
-      }, { 'cache-control': 'public, max-age=15, s-maxage=15' }, request);
+      }, { 'cache-control': 'public, max-age=15, s-maxage=15' });
     }
 
     // A Worker is an internet-facing URL with no trusted-LAN fallback, so it must
@@ -251,17 +189,17 @@ export class HubDO {
     if (!isAuthorized(request, this.secret)) return jsonResponse(401, { error: 'unauthorized' });
 
     if ((request.method === 'GET' || request.method === 'HEAD') && url.pathname === '/api/stats') {
-      return jsonResponse(200, await this.statsWithSubscriptionVersion(), {}, request);
+      return jsonResponse(200, await this.statsWithSubscriptionVersion());
     }
 
     if ((request.method === 'GET' || request.method === 'HEAD') && url.pathname === '/api/devices') {
       const devices = await this.listDevices();
-      return jsonResponse(200, { devices }, {}, request);
+      return jsonResponse(200, { devices });
     }
 
     if ((request.method === 'GET' || request.method === 'HEAD') && url.pathname === '/api/history') {
       const devices = await this.listDevices();
-      return jsonResponse(200, aggregateHistory(devices), {}, request);
+      return jsonResponse(200, aggregateHistory(devices));
     }
 
     if (request.method === 'GET' && url.pathname === '/api/stats/stream') {
@@ -271,11 +209,9 @@ export class HubDO {
       writer.write(this.encoder.encode(sseFormat('snapshot', {
         type: 'stats', reason: 'snapshot', stats, at: new Date().toISOString()
       }))).catch(() => {});
-      const client = { writer, freshnessEvents: hubProtocol.wantsFreshnessEvents(request) };
-      if (this.sseClients.size === 0) this.lastSseContentKey = hubProtocol.hubStatsContentKey(stats);
-      this.sseClients.add(client);
+      this.sseClients.add(writer);
       this.ensureHeartbeat();
-      request.signal.addEventListener('abort', () => this.dropClient(client));
+      request.signal.addEventListener('abort', () => this.dropClient(writer));
       return new Response(readable, {
         status: 200,
         headers: {
@@ -294,20 +230,11 @@ export class HubDO {
       catch (error) { return jsonResponse(400, { error: 'bad_request', message: error.message }); }
       if (!payload.deviceId && !payload.id) return jsonResponse(400, { error: 'deviceId_required' });
       const deviceId = String(payload.deviceId || payload.id);
-      const existing = stripSessionTextFromDeviceRecord(await this.state.storage.get(`dev:${deviceId}`));
-      const incoming = stripSessionTextFromDeviceRecord(payload);
-      const record = mergeDeviceRecord(existing, { ...incoming, receivedAt: new Date().toISOString() });
+      const existing = await this.state.storage.get(`dev:${deviceId}`);
+      const record = mergeDeviceRecord(existing, { ...payload, receivedAt: new Date().toISOString() });
       await this.state.storage.put(`dev:${record.deviceId}`, record);
-      this.queueBroadcast();
-      const response = { ok: true, deviceId: record.deviceId };
-      return jsonResponse(
-        200,
-        hubProtocol.wantsMinimalResponse(request)
-          ? response
-          : { ...response, stats: await this.statsWithSubscriptionVersion() },
-        {},
-        request
-      );
+      this.broadcast('ingest').catch(() => {});
+      return jsonResponse(200, { ok: true, deviceId: record.deviceId, stats: await this.statsWithSubscriptionVersion() });
     }
 
     // Shared by every device on this hub rather than owned by one of them, and
@@ -376,11 +303,7 @@ function publicPeriods(periods) {
     return [name, {
       ...safePeriod,
       sessions: Object.fromEntries(Object.entries(period?.sessions || {}).map(([key, session]) => {
-      const {
-        projectId, projectLabel, projectPath,
-        title, sessionTitle, session_title, name, preview, firstUserMessage, first_user_message,
-        ...safe
-      } = session;
+      const { projectId, projectLabel, projectPath, ...safe } = session;
       return [key, safe];
       }))
     }];
