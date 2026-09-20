@@ -15,7 +15,7 @@ const {
   projectMacWidgetHistory,
   readMacWidgetHistoryCache,
   writeMacWidgetHistoryCache
-} = require('../../src/electron/macWidget/historyStore');
+} = require('../../src/electron/macWidgetHistoryStore');
 
 function history(label = 'saved', daily = null) {
   return {
@@ -50,7 +50,7 @@ async function withTempRoot(callback) {
 
 test('production history cache storage uses only asynchronous filesystem I/O', () => {
   const source = fsSync.readFileSync(
-    path.join(__dirname, '..', '..', 'src', 'electron', 'macWidget', 'historyStore.js'),
+    path.join(__dirname, '..', '..', 'src', 'electron', 'macWidgetHistoryStore.js'),
     'utf8'
   );
   assert.match(source, /require\('node:fs\/promises'\)/);

@@ -187,14 +187,7 @@ test('fetchOpenCodeLimits surfaces Zen balance even with no usage windows', asyn
   const p = summary.providers.find((x) => x.provider === 'opencode');
   assert.strictEqual(p.status, 'ok');
   assert.strictEqual(p.balanceUsd, 4.5);
-  // The same amount also rides as a credits window, so a reader that only knows
-  // `windows` (the edge dock, the macOS widget) can render the balance too.
-  assert.deepStrictEqual(
-    p.windows.map((window) => [window.kind, window.metric, window.label, window.remaining, window.currency, window.showMeter]),
-    [['billing', 'credits', 'Balance', 4.5, 'USD', false]]
-  );
-  // No denominator means no meter: Zen tops up, it does not grant a pool.
-  assert.strictEqual(p.windows[0].remainingPercent, null);
+  assert.deepStrictEqual(p.windows, []);
 });
 
 test('opencode balanceUsd stays null when Zen returns a null balance (not coerced to 0)', async () => {
@@ -1407,7 +1400,7 @@ test('opencode drops a supplemental window whose kind the usage API answered', a
   assert.strictEqual(provider.status, 'ok');
   assert.deepStrictEqual(
     provider.windows.map((window) => `${window.kind}:${window.usedPercent}`),
-    ['session:40', 'weekly:55', 'billing:null']
+    ['session:40', 'weekly:55']
   );
   // The cookie is still what produced the balance.
   assert.strictEqual(provider.balanceUsd, 7.5);
@@ -1446,7 +1439,7 @@ test('opencode drops a supplemental window whose kind the local estimate answere
   const provider = summary.providers.find((p) => p.provider === 'opencode');
   assert.deepStrictEqual(
     provider.windows.map((window) => `${window.kind}:${window.usedPercent}:${window.source}`),
-    ['session:8.3:local', 'weekly:20:web', 'billing:null:web']
+    ['session:8.3:local', 'weekly:20:web']
   );
 });
 

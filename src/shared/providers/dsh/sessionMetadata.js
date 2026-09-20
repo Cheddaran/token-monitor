@@ -6,10 +6,9 @@ const {
   indexDshSessionHeaders,
   preferredDshSessionFileInDirectory,
   readDshSessionHeader,
-  readDshSessionState,
+  readDshSessionTitle,
   resolveDshSessionsRoot
 } = require('./sessionFiles');
-const { shouldReadSessionContext } = require('../../sessionContext');
 
 // This cache intentionally outlives one collection tick. The resolved sessions
 // root is part of the key because one process decorates the native home and
@@ -89,7 +88,7 @@ function resolveSessionMetadata(sessionIds, context) {
             createdAt: preferredHeader.createdAt,
             statFingerprint: '',
             directoryFingerprint,
-            sessionState: undefined
+            titleState: undefined
           };
           fileCache.set(key, entry);
         }
@@ -118,33 +117,18 @@ function resolveSessionMetadata(sessionIds, context) {
       }
       fileCache.set(key, entry);
     }
-    const readState = deps.readDshSessionState || readDshSessionState;
-    const sessionState = readState(entry.filePath, entry.sessionState);
-    if (sessionState !== entry.sessionState) {
-      entry = { ...entry, sessionState };
+    const readTitle = deps.readDshSessionTitle || readDshSessionTitle;
+    const titleState = readTitle(entry.filePath, entry.titleState);
+    if (titleState !== entry.titleState) {
+      entry = { ...entry, titleState };
       fileCache.set(key, entry);
     }
     const startedAt = isoFromDate(Number(entry.createdAt));
     if (!startedAt && !lastUsedAt) continue;
-    // The context window and its occupancy come out of the same incremental
-    // fold as the title, so nothing is re-read to obtain them — the recency
-    // gate here only decides whether a reading is still describing something
-    // current enough to report, and is shared with the providers whose
-    // readings do cost a file read.
-    const live = shouldReadSessionContext(lastUsedAt || startedAt, context.now);
-    // The turn boundary comes out of the same fold as the title and the context
-    // pair, so no extra read is spent on it. It is reported for every session,
-    // not only a recent one: whether the transcript said the turn finished is
-    // what stops a session reading as running, and the recency window would
-    // otherwise keep it green for its whole length.
     result.set(sessionId, {
       startedAt: startedAt || lastUsedAt,
       lastUsedAt: lastUsedAt || startedAt,
-      ...(sessionState?.title ? { title: sessionState.title } : {}),
-      // Forwarded in both directions, as with the other readers: `false`
-      // records an open turn and has to clear a `true` from an earlier tick.
-      ...(typeof sessionState?.turnEnded === 'boolean' ? { turnEnded: sessionState.turnEnded } : {}),
-      ...(live ? { contextWindow: sessionState?.contextWindow, contextTokens: sessionState?.contextTokens } : {})
+      ...(titleState?.title ? { title: titleState.title } : {})
     });
   }
   return result;

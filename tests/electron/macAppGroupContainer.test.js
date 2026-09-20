@@ -6,7 +6,7 @@ const test = require('node:test');
 const {
   createMacAppGroupApi,
   resolveMacAppGroupContainerPath
-} = require('../../src/electron/macWidget/macAppGroupContainer');
+} = require('../../src/electron/macAppGroupContainer');
 
 function fakeKoffi({ containerUrl = 31n, containerPath = '/Users/example/Library/Group Containers/group.com.example.tokenmonitor' } = {}) {
   const selectors = new Map([

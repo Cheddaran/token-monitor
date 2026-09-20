@@ -14,7 +14,7 @@ const {
   syncMacWidgetSnapshotDirectory,
   updateMacWidgetSnapshot,
   writeMacWidgetSnapshot
-} = require('../../src/electron/macWidget/bridge');
+} = require('../../src/electron/macWidgetBridge');
 const { aggregateDevices } = require('../../src/shared/usage');
 
 async function withTempDirectory(run) {

@@ -18,10 +18,7 @@ function resolveWidgetReloaderPath(options = {}) {
   const candidates = [];
   if (options.helperPath) candidates.push(options.helperPath);
   if (process.resourcesPath) candidates.push(path.join(process.resourcesPath, 'TokenMonitorWidgetReloader'));
-  // `src/electron/macWidget/` is three hops below the repository root, and the
-  // development build of the helper stays at `<repo>/build/macos-widget` however
-  // deep this module sits, so the hop count follows the file, not the artifact.
-  candidates.push(path.resolve(__dirname, '..', '..', '..', 'build', 'macos-widget', 'TokenMonitorWidgetReloader'));
+  candidates.push(path.resolve(__dirname, '..', '..', 'build', 'macos-widget', 'TokenMonitorWidgetReloader'));
   return candidates.find((candidate) => candidate && fs.existsSync(candidate)) || null;
 }
 
