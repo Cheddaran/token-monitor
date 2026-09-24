@@ -1,12 +1,10 @@
 'use strict';
 
 (function exposeLimitBalanceDisplay(root, factory) {
-  const api = factory(
-    typeof module === 'object' && module.exports ? require('./compactTokens') : root?.TokenMonitorCompactTokens
-  );
+  const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
   if (root) root.TokenMonitorLimitBalanceDisplay = api;
-})(typeof window !== 'undefined' ? window : globalThis, function createLimitBalanceDisplayApi(compactTokenApi) {
+})(typeof window !== 'undefined' ? window : globalThis, function createLimitBalanceDisplayApi() {
   const CURRENCY_SYMBOLS = { CNY: '¥', USD: '$' };
 
   function finiteNumber(value) {
@@ -92,17 +90,12 @@
     return symbol ? `${symbol}${number.toFixed(2)}` : `${code} ${number.toFixed(2)}`;
   }
 
-  function formatCompactMoney(value, currency, unitSystem = 'western', locale = 'en') {
+  function formatCompactMoney(value, currency) {
     const number = finiteNumber(value);
     if (number === null) return '';
     if (Math.abs(number) < 100_000) return formatMoney(number, currency);
     const code = normalizeCurrencyCode(currency);
     const prefix = code === 'CREDITS' ? '' : (CURRENCY_SYMBOLS[code] || `${code} `);
-    // Localized compact units reuse the token table, so a balance never mixes
-    // K/M/B with the 萬/億 figures beside it.
-    if (compactTokenApi?.effectiveCompactTokenUnits(unitSystem, locale) === 'localized') {
-      return `${prefix}${compactTokenApi.formatCompactValue(number, 'localized', locale)}`;
-    }
     return `${prefix}${new Intl.NumberFormat('en-US', {
       notation: 'compact',
       maximumFractionDigits: 2

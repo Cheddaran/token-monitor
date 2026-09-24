@@ -1,7 +1,6 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { fetchArkcliLimits } = require('./arkcli');
 const { normalizeLimitProvider } = require('../../limits/core');
 const {
   cleanSecret,
@@ -521,16 +520,7 @@ async function fetchVolcengineLimits(options = {}, deps = {}) {
     ...(credentials ? { region: credentials.region } : {})
   });
   const credentials = volcengineCredentials(env, options);
-  if (!credentials) {
-    // Never replace an explicitly selected (even incomplete) account with the
-    // unrelated identity currently logged into a CLI.
-    const explicit = Object.entries(options).some(([key, value]) =>
-      /volcengine.*(key|secret)/i.test(key) && cleanSecret(value))
-      || Object.entries(env).some(([key, value]) =>
-        /^(VOLCENGINE|VOLC|DOUBAO|ARK)_.*(KEY|SECRET)/.test(key) && cleanSecret(value));
-    if (explicit || env.TOKEN_MONITOR_VOLCENGINE_ARKCLI === '0') return [statusRow('notConfigured')];
-    return fetchArkcliLimits(deps, updatedAt);
-  }
+  if (!credentials) return [statusRow('notConfigured')];
 
   const tryArkFallback = async () => {
     if (!credentials.apiKey) throw new Error('Volcengine Ark API key is not configured');

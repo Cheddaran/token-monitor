@@ -434,8 +434,7 @@
   }
 
   function addDailyAttribution(target, field, source) {
-    for (const [rawName, value] of Object.entries(source || {})) {
-      const name = field === 'perClient' && rawName === 'antigravity-cli' ? 'antigravity' : rawName;
+    for (const [name, value] of Object.entries(source || {})) {
       if (!target[field][name]) target[field][name] = { tokens: 0, cost: 0 };
       target[field][name].tokens += finiteNumber(value?.tokens);
       target[field][name].cost += finiteNumber(value?.cost);
@@ -593,8 +592,7 @@
       period.cacheWriteTokens += finiteNumber(row?.cacheWriteTokens);
       period.outputTokens += finiteNumber(row?.outputTokens);
       period.unclassifiedTokens += unclassifiedTokensFor(row);
-      for (const [rawClient, value] of Object.entries(row?.perClient || {})) {
-        const client = rawClient === 'antigravity-cli' ? 'antigravity' : rawClient;
+      for (const [client, value] of Object.entries(row?.perClient || {})) {
         addMap(period.clients, client, value?.tokens);
         addMap(period.clientCosts, client, value?.cost);
         addMap(period.clientCacheReads, client, value?.cacheReadTokens);

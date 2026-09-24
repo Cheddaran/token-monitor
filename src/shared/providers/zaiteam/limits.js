@@ -3,7 +3,7 @@
 const { normalizeLimitProvider } = require('../../limits/core');
 const { cleanSecret } = require('../../limits/providerHelpers');
 const { hashKey } = require('../../hashKey');
-const { parseZaiUsage, readZaiBody } = require('../zai/limits');
+const { parseZaiUsage } = require('../zai/limits');
 const { runWithProbeDeadline } = require('../../probeDeadline');
 
 const ZAI_TEAM_FETCH_TIMEOUT_MS = 12_000;
@@ -59,9 +59,7 @@ async function fetchJson(url, { key, organization, project }, deps = {}) {
         : response.status === 429 ? 'sourceRateLimited' : 'unavailable';
       throw error;
     }
-    // The team quota shares the personal endpoints' gateway and envelope, so
-    // its body-level refusals are classified the same way (see readZaiBody).
-    return readZaiBody(response, url);
+    return response.json();
   }, { signal: deps.signal, deadlineMs });
 }
 

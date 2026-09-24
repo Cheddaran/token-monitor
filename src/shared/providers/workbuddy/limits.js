@@ -10,13 +10,6 @@ const WORKBUDDY_DEFAULT_ENDPOINT = 'https://copilot.tencent.com';
 const WORKBUDDY_PERSONAL_PATH = '/v2/billing/meter/get-user-resource';
 const WORKBUDDY_ENTERPRISE_PATH = '/v2/billing/meter/get-enterprise-user-usage';
 const WORKBUDDY_PRODUCT_CODE = 'p_tcaca';
-const WORKBUDDY_PERSONAL_RANGE_MS = 101 * 365 * 24 * 60 * 60 * 1000;
-// The Electron reader reports why the app-owned session is unusable. Only the
-// encrypted case changes the limits outcome — signing in again cannot fix a
-// credential the app sealed with a key Token Monitor does not hold — so it is
-// the one reason both layers have to agree on.
-const WORKBUDDY_SESSION_REASON_ENCRYPTED = 'encrypted';
-const WORKBUDDY_SESSION_ENCRYPTED_ACTION = 'appSessionEncrypted';
 
 // WorkBuddy is the only provider reading a credential this way: Trae needs the
 // same precedence but its own stricter cleaner, so this stays local rather than
@@ -86,15 +79,6 @@ function toIso(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function formatWorkbuddyDateTime(value) {
-  const date = new Date(value);
-  const pad = (part) => String(part).padStart(2, '0');
-  return [
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
-    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
-  ].join(' ');
-}
-
 function pickValue(source, keys) {
   if (!source || typeof source !== 'object') return null;
   for (const key of keys) {
@@ -145,8 +129,9 @@ function parsePersonalUsage(body) {
       continue;
     }
     const status = numberOrNull(pickValue(resource, ['Status', 'status']));
-    // The official client requests Status 3 packages for its wider UI, but
-    // those historical rows are not part of the currently spendable balance.
+    // Status 3 is an exhausted/expired resource package. It is returned by
+    // the endpoint even with OnlyValidPeriod=true, but it is not part of the
+    // currently spendable balance shown by WorkBuddy's website.
     if (status !== null && status !== 0) continue;
     candidateResources += 1;
     const total = numberOrNull(pickValue(resource, ['CycleCapacitySizePrecise', 'cycleCapacitySizePrecise']));
@@ -355,13 +340,7 @@ async function fetchWorkbuddyLimits(options = {}, deps = {}) {
   const domain = workbuddyDomain(env, options);
   const departmentInfo = workbuddyDepartmentInfo(env, options);
   const accountType = cleanSecret(options.workbuddyAccountType);
-  const sessionReason = cleanSecret(options.workbuddyLocalSessionReason);
   const localAppUnsupported = !token && options.workbuddyDesktopSessionSupported === false;
-  // The app owns the credential and sealed it: the generic not-configured row
-  // would tell the user to sign in again, which cannot change this outcome.
-  const localAppSessionEncrypted = !token
-    && options.workbuddyDesktopSessionEnabled === true
-    && sessionReason === WORKBUDDY_SESSION_REASON_ENCRYPTED;
   // The desktop widget reads the session owned by the installed WorkBuddy
   // app. If an advanced/headless token is present, keep the explicit token
   // path deterministic rather than mixing its metadata with the app session.
@@ -378,13 +357,6 @@ async function fetchWorkbuddyLimits(options = {}, deps = {}) {
   };
 
   if (localAppUnsupported) return normalizeLimitProvider({ ...source, status: 'unavailable' });
-  if (localAppSessionEncrypted) {
-    return normalizeLimitProvider({
-      ...source,
-      status: 'notConfigured',
-      actionRequired: WORKBUDDY_SESSION_ENCRYPTED_ACTION
-    });
-  }
   if (!token && !useLocalApp) return normalizeLimitProvider({ ...source, status: 'notConfigured' });
 
   const endpoint = WORKBUDDY_DEFAULT_ENDPOINT;
@@ -425,12 +397,11 @@ async function fetchWorkbuddyLimits(options = {}, deps = {}) {
           PageNumber: 1,
           PageSize: 100,
           ProductCode: WORKBUDDY_PRODUCT_CODE,
-          // Match the server-side package selection used by WorkBuddy's
-          // desktop client. parsePersonalUsage still excludes Status 3 rows
-          // from the current spendable aggregate.
-          Status: [0, 3],
-          PackageEndTimeRangeBegin: formatWorkbuddyDateTime(now),
-          PackageEndTimeRangeEnd: formatWorkbuddyDateTime(now + WORKBUDDY_PERSONAL_RANGE_MS)
+          // The endpoint can return exhausted/expired packages even when
+          // OnlyValidPeriod is true. The website's spendable balance is the
+          // active Status=0 set, so avoid downloading the historical rows too.
+          Status: [0],
+          OnlyValidPeriod: true
         })
       }, requestDeps);
     const usage = isEnterprise ? parseEnterpriseUsage(body) : parsePersonalUsage(body);
@@ -457,8 +428,6 @@ module.exports = {
   WORKBUDDY_FETCH_TIMEOUT_MS,
   WORKBUDDY_PERSONAL_PATH,
   WORKBUDDY_PRODUCT_CODE,
-  WORKBUDDY_SESSION_ENCRYPTED_ACTION,
-  WORKBUDDY_SESSION_REASON_ENCRYPTED,
   fetchWorkbuddyLimits,
   parseEnterpriseUsage,
   parsePersonalAccounts,

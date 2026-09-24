@@ -9,11 +9,12 @@ const test = require('node:test');
 const {
   MARKER_FILE_NAME,
   createMacWidgetLaunchServicesRecovery
-} = require('../../src/electron/macWidget/launchServicesRecovery');
+} = require('../../src/electron/macWidgetLaunchServicesRecovery');
 
 const CONFIG = Object.freeze({
   schemaVersion: 1,
   appGroup: 'TEAM.tokenmonitor',
+  urlScheme: 'token-monitor',
   widgetKind: 'com.tokenmonitor.dashboard',
   widgetUIVersion: 6,
   widgetSchemaVersion: 6,
@@ -378,7 +379,7 @@ test('revalidates a matching registration identity after the bounded interval', 
   }
 });
 
-test('changed build provenance, Widget kind, or host location gets a new registration identity', async () => {
+test('changed build provenance, URL scheme, or host location gets a new registration identity', async () => {
   const setup = fixture();
   const calls = [];
   try {
@@ -393,10 +394,10 @@ test('changed build provenance, Widget kind, or host location gets a new registr
 
     fs.writeFileSync(
       path.join(setup.resourcesPath, 'token-monitor-widget.json'),
-      `${JSON.stringify({ ...CONFIG, packageVersion: '0.43.1', widgetKind: 'com.tokenmonitor.dashboard.preview' })}\n`
+      `${JSON.stringify({ ...CONFIG, packageVersion: '0.43.1', urlScheme: 'token-monitor-preview' })}\n`
     );
-    const changedWidgetKind = createMacWidgetLaunchServicesRecovery({ execFile: successfulExec(calls) });
-    assert.deepEqual(await run(changedWidgetKind, setup), { status: 'completed' });
+    const changedURLScheme = createMacWidgetLaunchServicesRecovery({ execFile: successfulExec(calls) });
+    assert.deepEqual(await run(changedURLScheme, setup), { status: 'completed' });
 
     const moved = fixture({ appName: 'Token Monitor Moved.app' });
     try {

@@ -57,10 +57,8 @@ function balancedBlock(source, header) {
   assert.fail(`${header} should close`);
 }
 
-// The title resolver is the shared view's, because the limits panel, the Home
-// cards and the Edge Dock card all render through it. It is a plain browser
-// script, so run the title functions (plus the provider table they dispatch
-// through) in a sandbox instead of loading the DOM.
+// The renderer is a plain browser script, so run the title functions (plus the
+// provider table they dispatch through) in a sandbox instead of loading the DOM.
 function runTitle(source, expression, context = {}) {
   const snippets = TITLE_FUNCTIONS.map((name) => balancedBlock(source, `function ${name}(`));
   snippets.unshift(balancedBlock(source, 'const LIMIT_ACCOUNT_TITLES = {'));
@@ -69,14 +67,14 @@ function runTitle(source, expression, context = {}) {
 
 function titleContext(maskLimitAccountEmails) {
   return {
-    accountIdentity: { accountEmailLabel, accountTitleLabel, codexAccountDisplayLabel, maskEmailAddress },
-    settings: () => ({ maskLimitAccountEmails }),
+    accountIdentityApi: { accountEmailLabel, accountTitleLabel, codexAccountDisplayLabel, maskEmailAddress },
+    state: { settings: { maskLimitAccountEmails } },
     t: (key) => (key === 'settings.codex.personalWorkspace' ? 'Personal' : key)
   };
 }
 
 test('account email masking is applied by the shared limits title resolver', () => {
-  const view = readRendererFile('limitWindowsView.js');
+  const app = readRendererFile('app.js');
 
   assert.equal(maskEmailAddress('primary.user@example.com'), 'p***r@example.com');
   assert.equal(maskEmailAddress('secondary.user@example.com'), 's***r@example.com');
@@ -84,7 +82,7 @@ test('account email masking is applied by the shared limits title resolver', () 
 
   assert.equal(
     runTitle(
-      view,
+      app,
       "limitAccountTitle('claude', { accountEmail: 'primary.user@example.com' }, 0)",
       titleContext(false)
     ),
@@ -92,7 +90,7 @@ test('account email masking is applied by the shared limits title resolver', () 
   );
   assert.equal(
     runTitle(
-      view,
+      app,
       "limitAccountTitle('claude', { accountEmail: 'primary.user@example.com' }, 0)",
       titleContext(true)
     ),
@@ -100,7 +98,7 @@ test('account email masking is applied by the shared limits title resolver', () 
   );
   assert.equal(
     runTitle(
-      view,
+      app,
       "limitAccountTitle('codex', { accountEmail: 'primary.user@example.com' }, 0)",
       titleContext(true)
     ),
@@ -108,7 +106,7 @@ test('account email masking is applied by the shared limits title resolver', () 
   );
   assert.equal(
     runTitle(
-      view,
+      app,
       "limitAccountTitle('future-provider', { accountEmail: 'secondary.user@example.com' }, 0)",
       titleContext(true)
     ),
@@ -120,7 +118,7 @@ test('account email masking is applied by the shared limits title resolver', () 
 // addresses while the limits panel masked them. Every provider now resolves
 // through one table, and a provider that is missing from it must still mask.
 test('no limits provider can render a raw account email while masking is on', () => {
-  const view = readRendererFile('limitWindowsView.js');
+  const app = readRendererFile('app.js');
   const providers = [...LIMIT_PROVIDER_IDS, 'future-provider'];
 
   for (const id of providers) {
@@ -130,7 +128,7 @@ test('no limits provider can render a raw account email while masking is on', ()
       { accountEmail: 'primary.user@example.com', accountLabel: 'Pro' }
     ]) {
       const title = runTitle(
-        view,
+        app,
         `limitAccountTitle('${id}', ${JSON.stringify(account)}, 0)`,
         titleContext(true)
       );
@@ -145,30 +143,28 @@ test('no limits provider can render a raw account email while masking is on', ()
 
 test('title resolution matches between the limits panel and Home', () => {
   const app = readRendererFile('app.js');
-  const view = readRendererFile('limitWindowsView.js');
-  const dock = readRendererFile('edgeDock/dock.js');
-  // Every surface resolves account titles through the one function, and it is
-  // called from exactly one place per surface: the view's own group builder,
-  // the page's Home/tray path, and the card's card builder. No provider branch
-  // is left to disagree with another.
-  assert.match(view, /limitAccountTitle\(providerId, provider, index, providers\)/);
-  assert.match(app, /limitAccountTitle\(id, provider, index, providerEntries\)/);
-  assert.equal(dock.match(/limitAccountTitle/g), null, 'the card titles accounts through the view');
-  for (const name of ['codexAccountTitle', 'opencodeAccountTitle', 'namedApiAccountTitle', 'volcenginePlanAccountTitle']) {
-    assert.doesNotMatch(app, new RegExp(`${name}\\(provider, index`), `${name} should not be called from the page`);
+  const renderGroups = [
+    ["renderLimitProviderRow\\('codex', limitAccountTitle\\('codex', provider, index, providers\\)", 'codex'],
+    ["renderLimitProviderRow\\('claude', limitAccountTitle\\('claude', provider, index, providers\\)", 'claude'],
+    ["renderLimitProviderRow\\('mimo', limitAccountTitle\\('mimo', provider, index, providers\\)", 'mimo'],
+    ["renderLimitProviderRow\\('opencode', limitAccountTitle\\('opencode', provider, index, providers\\)", 'opencode']
+  ];
+  for (const [pattern, provider] of renderGroups) {
+    assert.match(app, new RegExp(pattern), `${provider} rows should resolve titles through limitAccountTitle`);
   }
+  assert.match(app, /limitAccountTitle\(providerId, provider, index, providers\)/);
+  assert.match(app, /limitAccountTitle\(id, provider, index, providerEntries\)/);
   // The tray renders account text outside the title resolver, so it reads the
   // same setting rather than its own.
-  const customTrayLayout = balancedBlock(app, 'function renderCustomTrayLayout(');
-  assert.match(customTrayLayout, /item\.metric === 'account'\s*&& state\.settings\?\.maskLimitAccountEmails === true/);
-  assert.match(customTrayLayout, /state\.codexActiveAccount\?\.accountKey/);
-  assert.match(customTrayLayout, /\[selectedCodexKey, detectedCodexKey\]\.find/);
-  assert.match(customTrayLayout, /activeAccountKeys: activeCodexKey \? \{ codex: activeCodexKey \} : \{\}/);
+  assert.match(
+    balancedBlock(app, 'function renderCustomTrayLayout('),
+    /item\.metric === 'account'\s*&& limitAccountEmailsMasked\(\)/
+  );
 
   // Named-API providers keep their profile name on both surfaces.
   assert.equal(
     runTitle(
-      view,
+      app,
       "limitAccountTitle('openrouter', { accountName: 'Team key' }, 0)",
       titleContext(true)
     ),
@@ -176,7 +172,7 @@ test('title resolution matches between the limits panel and Home', () => {
   );
   assert.equal(
     runTitle(
-      view,
+      app,
       "limitAccountTitle('thirdparty', { accountName: 'environment' }, 0)",
       titleContext(true)
     ),
@@ -184,7 +180,7 @@ test('title resolution matches between the limits panel and Home', () => {
   );
   assert.equal(
     runTitle(
-      view,
+      app,
       "limitAccountTitle('opencode', { accountLabel: 'Zen' }, 1)",
       titleContext(true)
     ),
@@ -195,9 +191,9 @@ test('title resolution matches between the limits panel and Home', () => {
 // Masking collapses distinct addresses into one label, so rows that share a
 // visible email must stay distinguishable without revealing what is hidden.
 test('accounts sharing a visible email are disambiguated', () => {
-  const view = readRendererFile('limitWindowsView.js');
+  const app = readRendererFile('app.js');
   const titlesFor = (peers, mask) => peers.map((peer, index) => runTitle(
-    view,
+    app,
     `limitAccountTitle('claude', ${JSON.stringify(peer)}, ${index}, ${JSON.stringify(peers)})`,
     titleContext(mask)
   ));

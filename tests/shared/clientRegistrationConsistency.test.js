@@ -26,8 +26,7 @@ const { KNOWN_CLIENTS } = require('../../src/shared/clientTracking');
 const { WSL_DATA_MARKERS, MARKER_CLIENTS } = require('../../src/shared/wslUsage');
 
 const rootDir = path.join(__dirname, '..', '..');
-const knownClientOrder = KNOWN_CLIENTS.split(',');
-const knownClientIds = new Set(knownClientOrder);
+const knownClientIds = new Set(KNOWN_CLIENTS.split(','));
 
 // discordRpc.js requires '@xhayper/discord-rpc', which isn't needed to read
 // its two plain data structures. Load it the same way
@@ -95,17 +94,6 @@ test('every MARKER_CLIENTS attribution points at a real tracked-client id', () =
 
 test('discordRpc KNOWN_CLIENT_ASSETS and CLIENT_LABELS stay in sync with KNOWN_CLIENTS', () => {
   const { knownClientAssets, clientLabels } = loadDiscordRpcClientMaps();
-
-  assert.deepEqual(
-    [...knownClientAssets].filter((id) => knownClientIds.has(id)),
-    knownClientOrder,
-    'tracked Discord assets should follow CLIENT_CATALOG display order'
-  );
-  assert.deepEqual(
-    Object.keys(clientLabels).filter((id) => knownClientIds.has(id)),
-    knownClientOrder,
-    'tracked Discord labels should follow CLIENT_CATALOG display order'
-  );
 
   const missingFromAssets = [];
   const missingFromLabels = [];

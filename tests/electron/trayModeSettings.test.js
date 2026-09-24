@@ -75,8 +75,9 @@ test('uses accessory activation when macOS is running from the menu bar only', (
 });
 
 test('keeps the Dock icon hidden while the window is visible', () => {
-  // focusExistingWindow() asserts mainWindowVisible: true, so hideAppIcon has
-  // to win over that branch or the Dock icon returns on the first tray click.
+  // focusExistingWindow() and openMainWindowFromWidget() both assert
+  // mainWindowVisible: true, so hideAppIcon has to win over that branch or the
+  // Dock icon returns on the first tray click.
   assert.equal(macActivationPolicyMode({ showTrayIcon: true, hideAppIcon: true }, { mainWindowVisible: true }), 'accessory');
   assert.equal(macActivationPolicyMode({ showTrayIcon: false, hideAppIcon: true }, { mainWindowVisible: true }), 'regular');
 });

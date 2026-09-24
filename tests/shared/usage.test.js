@@ -10,66 +10,9 @@ const {
   mergeDeviceRecord,
   mergePeriods,
   normalizeClientName,
-  normalizePeriod,
-  stripSessionTextFromDeviceRecord,
+  normalizeModelNameForClient,
   UNATTRIBUTED_USAGE_CLIENT
 } = require('../../src/shared/usage');
-
-test('session normalization preserves bounded titles and recognized background-review metadata', () => {
-  const period = normalizePeriod({ sessions: {
-    'codex:review': {
-      client: 'codex',
-      sessionId: 'review',
-      totalTokens: 10,
-      title: '  Review   the change  ',
-      sessionKind: 'background-review'
-    },
-    'codex:unknown': {
-      client: 'codex',
-      sessionId: 'unknown',
-      totalTokens: 5,
-      title: 'x'.repeat(200),
-      sessionKind: 'untrusted-kind'
-    }
-  } });
-
-  assert.equal(period.sessions['codex:review'].title, 'Review the change');
-  assert.equal(period.sessions['codex:review'].sessionKind, 'background-review');
-  assert.equal(period.sessions['codex:unknown'].title.length, 160);
-  assert.equal(period.sessions['codex:unknown'].sessionKind, '');
-});
-
-test('Hub ingress projection strips session text without mutating local records', () => {
-  const record = {
-    deviceId: 'macbook',
-    today: { sessions: {
-      'codex:s1': {
-        client: 'codex', sessionId: 's1', totalTokens: 10,
-        title: 'Private title', preview: 'Private preview', first_user_message: 'Private prompt',
-        sessionKind: 'background-review'
-      }
-    } },
-    periods: { month: { sessions: {
-      'claude:s2': {
-        client: 'claude', sessionId: 's2', totalTokens: 20,
-        sessionTitle: 'Private title', customTitle: 'Private custom title', aiTitle: 'Private AI title'
-      }
-    } } }
-  };
-
-  const stripped = stripSessionTextFromDeviceRecord(record);
-
-  assert.equal(record.today.sessions['codex:s1'].title, 'Private title');
-  assert.equal(stripped.today.sessions['codex:s1'].sessionKind, 'background-review');
-  assert.deepEqual(
-    Object.keys(stripped.today.sessions['codex:s1']).sort(),
-    ['client', 'sessionId', 'sessionKind', 'totalTokens'].sort()
-  );
-  assert.deepEqual(
-    Object.keys(stripped.periods.month.sessions['claude:s2']).sort(),
-    ['client', 'sessionId', 'totalTokens'].sort()
-  );
-});
 
 function recordWithLimits(extra = {}) {
   return {
@@ -414,73 +357,6 @@ test('mergeDeviceRecord allows the same runtime to clear Copilot limits', () => 
   const merged = mergeDeviceRecord(existing, incoming);
   assert.equal(merged.limits.providers.length, 1);
   assert.equal(merged.limits.providers[0].provider, 'copilot');
-  assert.equal(merged.limits.providers[0].status, 'notConfigured');
-});
-
-test('mergeDeviceRecord keeps widget Factory limits when a headless agent reports no local API key', () => {
-  const existing = recordWithLimits({
-    agentRuntime: 'electron-widget',
-    limits: {
-      updatedAt: '2026-06-26T08:00:00.000Z',
-      refreshMs: 300000,
-      providers: [
-        {
-          provider: 'factory',
-          accountKey: 'sha256:factory-user',
-          accountLabel: 'Factory Pro',
-          status: 'ok',
-          source: 'api',
-          updatedAt: '2026-06-26T08:00:00.000Z',
-          windows: [{ kind: 'session', label: '5-hour', usedPercent: 20 }]
-        }
-      ]
-    }
-  });
-  const incoming = {
-    deviceId: 'macbook',
-    agentRuntime: 'headless-agent',
-    updatedAt: '2026-06-26T08:01:00.000Z',
-    receivedAt: '2026-06-26T08:01:00.000Z',
-    limits: {
-      updatedAt: '2026-06-26T08:01:00.000Z',
-      refreshMs: 300000,
-      providers: [{ provider: 'factory', status: 'notConfigured', source: '', updatedAt: '2026-06-26T08:01:00.000Z', windows: [] }]
-    }
-  };
-
-  const merged = mergeDeviceRecord(existing, incoming);
-  assert.equal(merged.limits.providers.length, 1);
-  assert.equal(merged.limits.providers[0].provider, 'factory');
-  assert.equal(merged.limits.providers[0].status, 'ok');
-  assert.equal(merged.limits.providers[0].accountKey, 'sha256:factory-user');
-});
-
-test('mergeDeviceRecord allows the same runtime to clear Factory limits', () => {
-  const existing = recordWithLimits({
-    agentRuntime: 'electron-widget',
-    limits: {
-      updatedAt: '2026-06-26T08:00:00.000Z',
-      refreshMs: 300000,
-      providers: [
-        { provider: 'factory', accountKey: 'sha256:factory-user', status: 'ok', source: 'api', updatedAt: '2026-06-26T08:00:00.000Z', windows: [] }
-      ]
-    }
-  });
-  const incoming = {
-    deviceId: 'macbook',
-    agentRuntime: 'electron-widget',
-    updatedAt: '2026-06-26T08:01:00.000Z',
-    receivedAt: '2026-06-26T08:01:00.000Z',
-    limits: {
-      updatedAt: '2026-06-26T08:01:00.000Z',
-      refreshMs: 300000,
-      providers: [{ provider: 'factory', status: 'notConfigured', source: '', updatedAt: '2026-06-26T08:01:00.000Z', windows: [] }]
-    }
-  };
-
-  const merged = mergeDeviceRecord(existing, incoming);
-  assert.equal(merged.limits.providers.length, 1);
-  assert.equal(merged.limits.providers[0].provider, 'factory');
   assert.equal(merged.limits.providers[0].status, 'notConfigured');
 });
 
@@ -856,7 +732,7 @@ test('extractUsageFromTokscale normalizes GitHub Copilot client names', () => {
   assert.equal(period.clients.copilot, 30);
 });
 
-test('extractUsageFromTokscale normalizes Pi, Zed, and Kilo, keeping Copilot distinct', () => {
+test('extractUsageFromTokscale normalizes Pi, Zed, and Kilo Code, keeping Copilot distinct', () => {
   const period = extractUsageFromTokscale([
     { client: 'pi', model: 'claude-opus-4-8', totalTokens: 11 },
     { client: 'copilot', model: 'gpt-5.5', totalTokens: 13 },
@@ -867,23 +743,45 @@ test('extractUsageFromTokscale normalizes Pi, Zed, and Kilo, keeping Copilot dis
   assert.equal(period.clients.pi, 11);
   assert.equal(period.clients.copilot, 13);
   assert.equal(period.clients.zed, 17);
-  assert.equal(period.clients.kilo, 19);
+  assert.equal(period.clients.kilocode, 19);
 });
 
-test('extractUsageFromTokscale normalizes MiMo and ZCode client ids', () => {
-  // `micode` is tokscale's id for MiMo — a fossil of the path typo upstream
-  // fixed in its PR #784, which left the id behind. Token Monitor's id is
-  // `mimo`, shared with the limits provider for the same product, so both
-  // upstream spellings have to land there.
+test('extractUsageFromTokscale normalizes MiMo Code, MiniMax Code and ZCode client ids', () => {
   const period = extractUsageFromTokscale([
     { client: 'micode', model: 'mimo-v2.5-pro', totalTokens: 23 },
-    { client: 'micode-desktop', model: 'mimo-v2.5-pro', totalTokens: 5 },
+    { client: 'mcode', model: 'MiniMax-M2.5', totalTokens: 31 },
     { client: 'ZCode', model: 'glm-4.7', totalTokens: 29 }
   ]);
 
-  assert.equal(period.clients.mimo, 28);
-  assert.equal(period.clients.micode, undefined);
+  assert.equal(period.clients.micode, 23);
+  assert.equal(period.clients.mcode, 31);
   assert.equal(period.clients.zcode, 29);
+});
+
+test('extractUsageFromTokscale merges provider-qualified claude model ids with bare ids from other tools', () => {
+  // tokscale's Claude parser canonicalizes MiniMax-M3 through its pricing
+  // alias table into the provider-qualified "minimax/MiniMax-M3" (so the
+  // first-party price resolves), while the mcode parsers key the same model
+  // bare. Both must land on one model key or usage/cost split in two.
+  const period = extractUsageFromTokscale([
+    { client: 'claude', model: 'minimax/MiniMax-M3', totalTokens: 40 },
+    { client: 'mcode', model: 'MiniMax-M3', totalTokens: 60 }
+  ]);
+
+  assert.equal(period.models['minimax-m3'], 100);
+  assert.equal(period.models['minimax/minimax-m3'], undefined);
+  assert.equal(period.clientModels.claude['minimax-m3'], 40);
+  assert.equal(period.clientModels.mcode['minimax-m3'], 60);
+});
+
+test('claude provider-prefix strip leaves native and non-claude model keys alone', () => {
+  assert.equal(normalizeModelNameForClient('minimax/MiniMax-M3', 'claude'), 'minimax-m3');
+  assert.equal(normalizeModelNameForClient('minimax/minimax-m3', 'claude'), 'minimax-m3');
+  assert.equal(normalizeModelNameForClient('anthropic/claude-4-6-sonnet', 'claude'), 'claude-4-6-sonnet');
+  assert.equal(normalizeModelNameForClient('openrouter/anthropic/claude-sonnet-4', 'claude'), 'anthropic/claude-sonnet-4');
+  assert.equal(normalizeModelNameForClient('claude-sonnet-4-5', 'claude'), 'claude-sonnet-4-5');
+  assert.equal(normalizeModelNameForClient('deepseek/deepseek-v3', 'codex'), 'deepseek/deepseek-v3');
+  assert.equal(normalizeModelNameForClient('deepseek/deepseek-v4-flash', 'reasonix'), 'deepseek-v4-flash');
 });
 
 test('extractUsageFromTokscale passes zcode input straight through (tokscale normalizes cache upstream)', () => {
@@ -953,20 +851,15 @@ test('extractUsageFromTokscale keeps the canonical Command Code client id', () =
   assert.equal(period.clients.commandcode, 19);
 });
 
-test('normalizeClientName folds both Kilo sources together and keeps Oh My Pi separate from Pi', () => {
+test('normalizeClientName keeps kilo distinct from kilocode and maps both Oh My Pi ids to pi', () => {
   const period = extractUsageFromTokscale([
     { client: 'kilo', model: 'x', totalTokens: 5 },
-    { client: 'kilocode', model: 'x', totalTokens: 13 },
     { client: 'Oh My Pi', model: 'x', totalTokens: 7 },
     { client: 'omp', model: 'x', totalTokens: 11 }
   ]);
 
-  assert.equal(period.clients.kilo, 18);
-  // Oh My Pi and Pi are two products with two roots. Both of its spellings
-  // resolve to the `omp` id, which must stay distinct from `pi` so the two rows
-  // do not silently re-merge on the way to the dashboard.
-  assert.equal(period.clients.omp, 18);
-  assert.equal(period.clients.pi, undefined);
+  assert.equal(period.clients.kilo, 5);
+  assert.equal(period.clients.pi, 18);
   assert.ok(!('kilocode' in period.clients));
 });
 
@@ -974,6 +867,14 @@ test('normalizeClientName keeps Qoder CN distinct from international Qoder', () 
   assert.equal(normalizeClientName('Qoder CN'), 'qodercn');
   assert.equal(normalizeClientName('qoder-cn'), 'qodercn');
   assert.equal(normalizeClientName('Qoder'), 'qoder');
+});
+
+test('normalizeClientName maps MiniMax Code and its product label to mcode', () => {
+  assert.equal(normalizeClientName('mcode'), 'mcode');
+  assert.equal(normalizeClientName('MiniMax Code'), 'mcode');
+  assert.equal(normalizeClientName('minimax-code'), 'mcode');
+  // A MiniMax *model* label is not the client: it must not collapse into mcode.
+  assert.equal(normalizeClientName('MiniMax-M3'), 'minimax-m3');
 });
 
 test('extractUsageFromTokscale keeps model usage grouped by client', () => {
@@ -1369,109 +1270,4 @@ test('aggregateDevices falls back to UTC-day compare for old agents without peri
     today: { totalTokens: 7 }
   }], 10 * 60 * 1000, Date.parse('2026-06-26T06:00:00.000Z'));
   assert.equal(kept.periods.today.totalTokens, 7);
-});
-
-test('a session carries its context occupancy through the device record', () => {
-  const record = normalizeDeviceRecord({
-    deviceId: 'm1',
-    updatedAt: '2026-09-18T06:00:00.000Z',
-    today: {
-      totalTokens: 10,
-      sessions: {
-        'codex:live': {
-          client: 'codex',
-          sessionId: 'rollout-2026-09-18T05-00-00-019e76fc-aaaa-bbbb-cccc-111111111111',
-          totalTokens: 10,
-          contextTokens: 190_867,
-          contextWindow: 950_000
-        }
-      }
-    }
-  });
-  const session = record.periods.today.sessions['codex:rollout-2026-09-18T05-00-00-019e76fc-aaaa-bbbb-cccc-111111111111'];
-  assert.equal(session.contextTokens, 190_867);
-  assert.equal(session.contextWindow, 950_000);
-});
-
-test('merging a session keeps one source occupancy rather than summing two', () => {
-  const session = (contextTokens, contextWindow) => ({
-    client: 'codex',
-    sessionId: 'rollout-2026-09-18T05-00-00-019e76fc-aaaa-bbbb-cccc-111111111111',
-    totalTokens: 5,
-    ...(contextWindow ? { contextTokens, contextWindow } : {})
-  });
-  const merged = normalizeDeviceRecord({
-    deviceId: 'm1',
-    today: { totalTokens: 10, sessions: { a: session(100, 200_000), b: session(140, 200_000) } }
-  });
-  const key = 'codex:rollout-2026-09-18T05-00-00-019e76fc-aaaa-bbbb-cccc-111111111111';
-  assert.equal(merged.periods.today.sessions[key].contextTokens, 140);
-  assert.equal(merged.periods.today.sessions[key].contextWindow, 200_000);
-
-  // A partition with no reading leaves the one that has it alone, instead of
-  // zeroing a live session every time it is merged with a period that only
-  // carries totals.
-  const partial = normalizeDeviceRecord({
-    deviceId: 'm1',
-    today: { totalTokens: 10, sessions: { a: session(100, 200_000), b: session(0, 0) } }
-  });
-  assert.equal(partial.periods.today.sessions[key].contextTokens, 100);
-  assert.equal(partial.periods.today.sessions[key].contextWindow, 200_000);
-
-  // A snapshot is freshest-wins, not last-merge-wins. The same session arrives
-  // from several periods and synced devices; without this the older reading won
-  // whenever it happened to be merged last, which made the gauge depend on
-  // iteration order. Here the stale reading is merged after the fresh one and
-  // must still lose.
-  const timed = (contextTokens, contextWindow, lastUsedAt) => ({
-    client: 'codex',
-    sessionId: 'rollout-2026-09-18T05-00-00-019e76fc-aaaa-bbbb-cccc-111111111111',
-    totalTokens: 5,
-    contextTokens,
-    contextWindow,
-    lastUsedAt
-  });
-  const fresh = timed(140, 200_000, '2026-09-18T05:10:00.000Z');
-  const stale = timed(20, 200_000, '2026-09-18T05:00:00.000Z');
-  const ordered = normalizeDeviceRecord({
-    deviceId: 'm1',
-    today: { totalTokens: 10, sessions: { a: fresh, b: stale } }
-  });
-  assert.equal(ordered.periods.today.sessions[key].contextTokens, 140, 'a stale snapshot merged last must not win');
-
-  // A device that never read a transcript has no reading at all, which is not
-  // the same as an empty one, so it must not block a real reading either way.
-  const unknown = normalizeDeviceRecord({
-    deviceId: 'm1',
-    today: { totalTokens: 10, sessions: { a: session(0, 0), b: fresh } }
-  });
-  assert.equal(unknown.periods.today.sessions[key].contextTokens, 140);
-  assert.equal(unknown.periods.today.sessions[key].contextWindow, 200_000);
-});
-
-test('aggregateDevices folds a pre-rename micode device into the mimo row', () => {
-  // The tracked-client id was renamed from tokscale's `micode` to `mimo`. A hub
-  // outlives any single device update, so it holds records posted by agents on
-  // both sides of that rename — and aggregateDevices normalizes on *read*, not
-  // only on ingest, so a record already sitting in data/devices.json folds too.
-  // Without that the same tool would show as two rows until every device
-  // upgraded.
-  const now = Date.parse('2026-09-23T00:00:00.000Z');
-  const deviceAt = (deviceId, client, tokens, cost) => ({
-    deviceId,
-    hostname: deviceId,
-    updatedAt: '2026-09-23T00:00:00.000Z',
-    receivedAt: '2026-09-23T00:00:00.000Z',
-    today: { totalTokens: tokens, costUsd: cost, clients: { [client]: tokens }, clientCosts: { [client]: cost } }
-  });
-
-  const aggregate = aggregateDevices(
-    [deviceAt('old-agent', 'micode', 100, 1.5), deviceAt('new-agent', 'mimo', 40, 0.5)],
-    0,
-    now
-  );
-
-  assert.equal(aggregate.periods.today.clients.mimo, 140);
-  assert.equal(aggregate.periods.today.clients.micode, undefined);
-  assert.equal(aggregate.periods.today.clientCosts.mimo, 2);
 });

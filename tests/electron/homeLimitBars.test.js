@@ -24,10 +24,8 @@ test('Home highlights only low and critical remaining limits', () => {
   const app = read('src/electron/renderer/app.js');
   const css = read('src/electron/renderer/styles.css');
 
-  // The meter is built by the shared Limits view, which the edge dock uses too.
-  const view = read('src/electron/renderer/limitWindowsView.js');
-  assert.match(view, /function limitMeterNode\(color, percent, tone = 1\)/);
-  assert.match(view, /const meter = limitMeterNode\(color, fillPercent, tone\)/);
+  assert.match(app, /function limitMeterNode\(color, percent, tone = 1\)/);
+  assert.match(app, /const meter = limitMeterNode\(color, fillPercent, tone\)/);
   assert.match(app, /state\.settings\?\.showHomeLimitBars === true && window\.remainingPercent != null/);
   assert.match(app, /remainingPercent < 20/);
   assert.match(app, /value\.classList\.add\('home-limit-value-critical'\)/);

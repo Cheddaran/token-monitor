@@ -11,10 +11,11 @@
     codex: '../../../assets/icons/tray-codex.svg',
     chatgpt: '../../../assets/icons/codex.svg',
     hermes: '../../../assets/icons/hermes-agent.svg',
-    factory: '../../../assets/icons/droid.svg',
     kimi: '../../../assets/icons/kimi.svg',
     mimo: '../../../assets/icons/xiaomi.svg',
     grok: '../../../assets/icons/grok.svg',
+    micode: '../../../assets/icons/xiaomi.svg',
+    mcode: '../../../assets/icons/minimax.svg',
     zcode: '../../../assets/icons/zai.svg',
     zaiteam: '../../../assets/icons/zai.svg'
   };

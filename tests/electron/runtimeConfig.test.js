@@ -20,7 +20,6 @@ const { alibabaVariant } = require('../../src/shared/providers/alibaba/limits');
 
 const BASE_USAGE_SETTINGS = Object.freeze({
   clients: 'claude',
-  customScanPaths: {},
   allTimeSince: '2024-01-01',
   collectionIntervalMs: 5 * 60 * 1000,
   collectionMode: 'smart',
@@ -124,7 +123,6 @@ test('usage config fingerprint dedupes raw settings with the same effective runt
 test('every usage structural setting maps to an effective fingerprint change', () => {
   const cases = {
     clients: { clients: 'claude,codex' },
-    customScanPaths: { customScanPaths: { claude: [path.resolve('tmp', 'claude-sessions')] } },
     allTimeSince: { allTimeSince: '2025-01-01' },
     collectionIntervalMs: {
       previous: { collectionMode: 'fixed' },
@@ -332,27 +330,6 @@ test('desktop WorkBuddy Local App monitoring resolves session metadata when its 
   assert.equal(limits.workbuddyEnterpriseId, 'local-enterprise');
   assert.equal(limits.workbuddyAccountType, 'enterprise');
   assert.equal(limits.workbuddyAccessToken, '');
-});
-
-test('desktop WorkBuddy Local App monitoring carries the session read reason', () => {
-  const sealed = limitsConfigFromSettings({}, {
-    env: {},
-    workbuddyDesktopSessionOnly: true,
-    workbuddyDesktopSessionEnabled: true,
-    workbuddyLocalSession: { authenticated: false, reason: 'encrypted' }
-  });
-  assert.equal(sealed.workbuddyLocalSessionReason, 'encrypted');
-
-  const readable = limitsConfigFromSettings({}, {
-    env: {},
-    workbuddyDesktopSessionOnly: true,
-    workbuddyDesktopSessionEnabled: true,
-    workbuddyLocalSession: { userId: 'local-user', accountType: 'personal' }
-  });
-  assert.equal(readable.workbuddyLocalSessionReason, '');
-
-  const inactive = limitsConfigFromSettings({}, { env: {}, workbuddyDesktopSessionOnly: true });
-  assert.equal(inactive.workbuddyLocalSessionReason, '');
 });
 
 test('desktop WorkBuddy auth reads can be disabled without enabling fallback credentials', () => {

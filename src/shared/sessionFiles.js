@@ -4,28 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { claudeSessionRoots } = require('./providers/claude/paths');
 
-function isSafeSessionId(sessionId) {
-  const id = String(sessionId || '');
-  if (!id || id === '.' || id === '..') return false;
-  if (id.includes('\0')) return false;
-  // A single path segment only — separators would let path.join walk out.
-  if (/[\\/]/.test(id)) return false;
-  return path.basename(id) === id;
-}
-
-function isPathInside(root, candidate) {
-  const resolvedRoot = path.resolve(root);
-  const resolvedCandidate = path.resolve(candidate);
-  const relative = path.relative(resolvedRoot, resolvedCandidate);
-  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
-}
-
 function findSessionFiles(root, sessionIds) {
-  const wanted = new Set();
-  for (const sessionId of sessionIds) {
-    if (!isSafeSessionId(sessionId)) continue;
-    wanted.add(`${sessionId}.jsonl`);
-  }
+  const wanted = new Set(Array.from(sessionIds).map((id) => `${id}.jsonl`));
   const found = new Map();
   if (wanted.size === 0) return found;
 
@@ -48,26 +28,16 @@ function findSessionFiles(root, sessionIds) {
   return found;
 }
 
-function codexHomeDir(home, options = {}) {
-  const env = options.env || process.env;
-  const configured = options.useEnvRoots !== false ? String(env.CODEX_HOME || '').trim() : '';
-  return configured ? path.resolve(configured) : path.join(home, '.codex');
-}
-
-function codexSessionFile(home, sessionId, options = {}) {
-  if (!isSafeSessionId(sessionId)) return '';
-  const match = String(sessionId).match(/^rollout-(\d{4})-(\d{2})-(\d{2})T/);
+function codexSessionFile(home, sessionId) {
+  const match = String(sessionId || '').match(/^rollout-(\d{4})-(\d{2})-(\d{2})T/);
   if (!match) return '';
-  const codexHome = options.codexHome || codexHomeDir(home, options);
-  const sessionsRoot = path.join(codexHome, 'sessions');
-  const filePath = path.join(sessionsRoot, match[1], match[2], match[3], `${sessionId}.jsonl`);
-  if (!isPathInside(sessionsRoot, filePath)) return '';
+  const filePath = path.join(home, '.codex', 'sessions', match[1], match[2], match[3], `${sessionId}.jsonl`);
   try { return fs.statSync(filePath).isFile() ? filePath : ''; } catch (_) { return ''; }
 }
 
 function resolveSessionFile(client, sessionId, home, options = {}) {
   const id = String(sessionId || '');
-  if (!isSafeSessionId(id)) return '';
+  if (!id) return '';
   if (client === 'claude') {
     const { projects, transcripts } = claudeSessionRoots({
       homeDir: home,
@@ -79,12 +49,11 @@ function resolveSessionFile(client, sessionId, home, options = {}) {
     return findSessionFiles(transcripts, [id]).get(id) || '';
   }
   if (client === 'codex') {
-    const codexHome = options.codexHome || codexHomeDir(home, options);
-    const direct = codexSessionFile(home, id, { codexHome });
+    const direct = codexSessionFile(home, id);
     if (direct) return direct;
-    return findSessionFiles(path.join(codexHome, 'sessions'), [id]).get(id) || '';
+    return findSessionFiles(path.join(home, '.codex', 'sessions'), [id]).get(id) || '';
   }
   return '';
 }
 
-module.exports = { findSessionFiles, codexSessionFile, resolveSessionFile, isSafeSessionId };
+module.exports = { findSessionFiles, codexSessionFile, resolveSessionFile };

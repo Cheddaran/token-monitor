@@ -15,9 +15,6 @@ contextBridge.exposeInMainWorld('tokenMonitor', {
   clearSessionUsageArchive: () => ipcRenderer.invoke('sessionUsageArchive:clear'),
   lookupModelPricing: (modelId) => ipcRenderer.invoke('pricing:lookup', modelId),
   previewAppearance: (patch) => ipcRenderer.invoke('appearance:preview', patch),
-  getBackgroundImage: () => ipcRenderer.invoke('appearance:getBackgroundImage'),
-  chooseBackgroundImage: () => ipcRenderer.invoke('appearance:chooseBackgroundImage'),
-  clearBackgroundImage: () => ipcRenderer.invoke('appearance:clearBackgroundImage'),
   getStats: (options) => ipcRenderer.invoke('stats:get', options),
   getSessionDetail: (args) => ipcRenderer.invoke('session:getDetail', args),
   getStreamStatus: () => ipcRenderer.invoke('stream:status'),
@@ -82,7 +79,6 @@ contextBridge.exposeInMainWorld('tokenMonitor', {
   generateDiagnosticReport: () => ipcRenderer.invoke('diagnostics:generate'),
   copyText: (text) => ipcRenderer.invoke('clipboard:write', text),
   clientSources: (clientId) => ipcRenderer.invoke('usage:clientSources', clientId),
-  pickCustomScanPath: (clientId) => ipcRenderer.invoke('usage:pickCustomScanPath', clientId),
   revealClientSource: (clientId) => ipcRenderer.invoke('usage:revealClientSource', clientId),
   revealClientSyncLock: (clientId) => ipcRenderer.invoke('usage:revealClientSyncLock', clientId),
   rescanClient: (clientId) => ipcRenderer.invoke('usage:rescanClient', clientId),
@@ -154,12 +150,6 @@ contextBridge.exposeInMainWorld('tokenMonitor', {
   ollama: {
     validateCookie: (cookie) => ipcRenderer.invoke('ollama:validateCookie', cookie)
   },
-  cline: {
-    validateApiKey: (apiKey) => ipcRenderer.invoke('cline:validateApiKey', apiKey)
-  },
-  factory: {
-    validateApiKey: (apiKey) => ipcRenderer.invoke('factory:validateApiKey', apiKey)
-  },
   opencode: {
     saveCookie: (cookie) => ipcRenderer.invoke('opencode:saveCookie', cookie),
     logout: () => ipcRenderer.invoke('opencode:logout'),
@@ -196,11 +186,6 @@ contextBridge.exposeInMainWorld('tokenMonitor', {
     setAccountEnabled: (id, enabled) => ipcRenderer.invoke('codex:setAccountEnabled', id, enabled),
     switchSystemAccount: (id) => ipcRenderer.invoke('codex:switchSystemAccount', id),
     refreshAccountLimits: (id) => ipcRenderer.invoke('codex:refreshAccountLimits', id),
-    onActiveAccount: (callback) => {
-      const handler = (_event, account) => callback(account);
-      ipcRenderer.on('codex:activeAccount', handler);
-      return () => ipcRenderer.removeListener('codex:activeAccount', handler);
-    },
     onLoginStatus: (callback) => {
       const handler = (_event, status) => callback(status);
       ipcRenderer.on('codex:loginStatus', handler);

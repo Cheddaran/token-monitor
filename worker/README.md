@@ -115,9 +115,8 @@ Leave it unset to keep `/api/public/stats` disabled.
 
 Pick the **async / no main()** template. Use the `?secret=` query-string
 auth — Widgy's invisible WKWebView can trip over the CORS preflight that
-`Authorization: Bearer` triggers. Treat this as a limited compatibility
-path: a secret in the URL can appear in proxy, platform, and history logs.
-Prefer a header from any client that can set one.
+`Authorization: Bearer` triggers, and the URL stays on-device in the Widgy
+config, so the secret never hits an external log.
 
 Minimum version — just one number:
 
@@ -265,23 +264,21 @@ endpoint includes account hashes for de-duplication. When enabled,
 | GET    | `/api/health`              | none   | Liveness probe + device count              |
 | GET    | `/api/public/stats`        | none   | Public aggregate stats without devices/account ids when `PUBLIC_STATS_ENABLED=1` |
 | GET    | `/api/stats`               | secret | Aggregated stats (today / month / allTime) |
-| GET    | `/api/stats/stream`        | secret | SSE snapshot plus coalesced live changes   |
+| GET    | `/api/stats/stream`        | secret | SSE stream, push on every ingest           |
 | GET    | `/api/devices`             | secret | Raw per-device records                     |
 | POST   | `/api/ingest`              | secret | Upsert a device's usage summary            |
 | DELETE | `/api/devices/{deviceId}`  | secret | Remove a device record                     |
 
-The secret is accepted three ways (any one works). Prefer a header; keep
-`?secret=` only as a limited compatibility / migration path:
+The secret is accepted three ways (any one works):
 
 1. `Authorization: Bearer <secret>` — preferred for agents, widget, and any
    server / desktop client.
 2. `x-token-monitor-secret: <secret>` — fallback for clients that cannot set
    `Authorization`.
-3. `?secret=<secret>` query string — limited compatibility / migration path
-   for iOS widget runtimes (Widgy, Scriptable) whose WKWebView struggles with
-   CORS preflight for the `Authorization` header. A secret in the URL can
-   appear in proxy, platform, and history logs. New clients should send a
-   header.
+3. `?secret=<secret>` query string — workaround for iOS widget runtimes
+   (Widgy, Scriptable) whose WKWebView struggles with CORS preflight for the
+   `Authorization` header. Only use this from clients where the URL stays
+   local to the device.
 
 The secret is required. When `TOKEN_MONITOR_SECRET` is unset, every data route
 returns `503 secret_required` — only `/api/health` and the opt-in

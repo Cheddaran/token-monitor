@@ -29,7 +29,6 @@
     'reset',
     'tokens',
     'cost',
-    'liveTokenRate',
     'account',
     'customText',
     'doubleCustomText',
@@ -40,8 +39,8 @@
   const ITEM_TYPES = new Set(['icon', 'bars', 'stack', 'text', 'spacer']);
   const ACCOUNT_MODES = new Set(['lowest', 'active', 'specific']);
   const VALUE_MODES = new Set(['remaining', 'used']);
-  const TEXT_METRICS = new Set(['percent', 'percentReset', 'reset', 'tokens', 'cost', 'liveTokenRate', 'account', 'custom']);
-  const INFO_METRICS = new Set(['percent', 'percentReset', 'reset', 'tokens', 'cost', 'liveTokenRate']);
+  const TEXT_METRICS = new Set(['percent', 'percentReset', 'reset', 'tokens', 'cost', 'account', 'custom']);
+  const INFO_METRICS = new Set(['percent', 'percentReset', 'reset', 'tokens', 'cost']);
   const STACK_METRICS = new Set(['percent', 'reset', 'mixed', 'custom']);
   const STACK_ALIGNMENTS = new Set(['left', 'right']);
   const FONT_STYLES = new Set(['normal', 'condensed', 'menubar', 'compactMono']);
@@ -53,8 +52,6 @@
   const USAGE_SCOPES = new Set(['all', 'recent']);
   const PERIODS = new Set(['today', 'month', 'allTime']);
   const WINDOW_PRESETS = new Set(['primary', 'secondary', 'session', 'daily', 'weekly', 'billing']);
-  const LIVE_RATE_MODES = new Set(['speed', 'burn']);
-  const LIVE_RATE_SCOPES = new Set(['all', 'device']);
 
   function clean(value, max = 160) {
     return String(value || '').trim().slice(0, max);
@@ -137,20 +134,9 @@
     return USAGE_SCOPES.has(scope) ? scope : 'all';
   }
 
-  function normalizeLiveRateMode(value) {
-    const mode = clean(value, 24);
-    return LIVE_RATE_MODES.has(mode) ? mode : 'speed';
-  }
-
-  function normalizeLiveRateScope(value) {
-    const scope = clean(value, 24);
-    return LIVE_RATE_SCOPES.has(scope) ? scope : 'all';
-  }
-
   function normalizeSource(input, fallbackWindow = 'primary') {
     const source = input && typeof input === 'object' ? input : {};
-    const rawProvider = clean(source.provider, 48).toLowerCase();
-    const provider = rawProvider === 'kilocode' ? 'kilo' : rawProvider;
+    const provider = clean(source.provider, 48).toLowerCase();
     const accountMode = clean(source.accountMode, 24);
     const valueMode = clean(source.valueMode, 24);
     const normalized = {
@@ -172,9 +158,6 @@
       metric: INFO_METRICS.has(metric) ? metric : 'percent',
       period: 'today'
     };
-    if (row.metric === 'liveTokenRate') {
-      return { metric: 'liveTokenRate', rateMode: 'speed', rateScope: 'all' };
-    }
     if (row.metric === 'cost') return { ...row, usageScope: 'all', ...normalizeCostDisplay() };
     return row.metric === 'tokens' ? { ...row, usageScope: 'all' } : row;
   }
@@ -187,13 +170,6 @@
       metric: INFO_METRICS.has(metric) ? metric : fallbackMetric,
       period: PERIODS.has(row.period) ? row.period : 'today'
     };
-    if (normalized.metric === 'liveTokenRate') {
-      return {
-        metric: 'liveTokenRate',
-        rateMode: normalizeLiveRateMode(row.rateMode),
-        rateScope: normalizeLiveRateScope(row.rateScope)
-      };
-    }
     if (normalized.metric === 'cost') {
       return {
         ...normalized,
@@ -323,17 +299,6 @@
         metric: 'custom',
         fontStyle: 'normal',
         text: 'Text'
-      };
-    }
-    if (styleId === 'liveTokenRate') {
-      return {
-        id,
-        type: 'text',
-        style: styleId,
-        metric: 'liveTokenRate',
-        rateMode: 'speed',
-        rateScope: 'all',
-        fontStyle: 'normal'
       };
     }
     if (styleId === 'spacer' || styleId === 'separatorDot') {
@@ -494,17 +459,6 @@
         text: clean(input.text, 40)
       };
     }
-    if (metric === 'liveTokenRate' || style === 'liveTokenRate') {
-      return {
-        id,
-        type,
-        style: 'liveTokenRate',
-        metric: 'liveTokenRate',
-        rateMode: normalizeLiveRateMode(input.rateMode),
-        rateScope: normalizeLiveRateScope(input.rateScope),
-        fontStyle: normalizeFontStyle(input.fontStyle)
-      };
-    }
     const period = PERIODS.has(input.period) ? input.period : 'today';
     const normalized = {
       id,
@@ -568,27 +522,6 @@
       if (items.length >= MAX_ITEMS) break;
     }
     return { version: VERSION, items };
-  }
-
-  function liveTokenRateItems(layout) {
-    return normalizeTrayLayout(layout).items.flatMap((item) => {
-      if (item.metric === 'liveTokenRate') return [item];
-      if (item.type === 'stack' && item.metric === 'mixed') {
-        return item.rows.filter((row) => row.metric === 'liveTokenRate');
-      }
-      return [];
-    });
-  }
-
-  function liveTokenRateItemsForSurfaces(surfaces) {
-    if (!Array.isArray(surfaces)) return [];
-    return surfaces.flatMap((surface) => {
-      if (surface?.enabled !== true) return [];
-      if (surface.content === 'liveTokenRate') {
-        return [{ metric: 'liveTokenRate', rateMode: 'speed', rateScope: 'all' }];
-      }
-      return surface.content === 'custom' ? liveTokenRateItems(surface.layout) : [];
-    });
   }
 
   function replaceTrayLayoutItem(layout, itemId, patch) {
@@ -835,9 +768,7 @@
           moneyText: credits
             ? balanceDisplay.formatCompactMoney(
                 balanceDisplay.creditsAmount(provider, window),
-                balanceDisplay.creditsCurrency(provider, window),
-                options.compactTokenUnits,
-                options.locale || options.language || 'en'
+                balanceDisplay.creditsCurrency(provider, window)
               )
             : '',
           source: normalized
@@ -938,21 +869,6 @@
   }
 
   function resolveTextItem(item, stats, options, recentProvider = null) {
-    if (item.metric === 'liveTokenRate') {
-      const scope = normalizeLiveRateScope(item.rateScope);
-      const sample = options.liveTokenRates?.[scope] || null;
-      const mode = normalizeLiveRateMode(item.rateMode);
-      const rawRate = sample ? sample[mode] : null;
-      const rate = rawRate === null || rawRate === undefined ? null : finite(rawRate);
-      const text = `${rate === null ? '—' : formatLiveRate(rate, options)} ${mode === 'burn' ? 'TPM' : 'tok/s'}`;
-      return {
-        ...item,
-        available: Boolean(sample && sample.idle !== true),
-        text,
-        provider: 'app',
-        liveTokenRate: sample
-      };
-    }
     if (item.metric === 'custom') {
       const text = clean(item.text, 40);
       return { ...item, available: Boolean(text), text: text || '--' };
@@ -977,18 +893,6 @@
     else if (item.metric === 'reset') text = reset || '--';
     else text = accountLabel(selection.providerRecord) || selection.provider;
     return { ...item, available: Boolean(text && text !== '--'), text: text || '--', selection };
-  }
-
-  function formatLiveRate(value, options = {}) {
-    if (typeof options.liveTokenRateFormatter === 'function') {
-      return options.liveTokenRateFormatter(value);
-    }
-    if (trayTextApi?.formatCompactNumber) return trayTextApi.formatCompactNumber(value, options);
-    const number = Number(value);
-    if (!Number.isFinite(number)) return '—';
-    if (number > 0 && number < 0.1) return '<0.1';
-    if (number > 0 && number < 1) return number.toLocaleString(options.locale || options.language || 'en', { maximumFractionDigits: 1 });
-    return String(Math.round(number));
   }
 
   function preferredRowProvider(rows, preferredIndex = 0) {
@@ -1125,8 +1029,6 @@
     createTrayLayoutItem,
     displayPercent,
     formatResetCountdown,
-    liveTokenRateItems,
-    liveTokenRateItemsForSurfaces,
     moveTrayLayoutItem,
     normalizeSource,
     normalizeTrayLayout,

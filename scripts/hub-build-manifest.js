@@ -20,13 +20,11 @@ const WORKER_SHARED_MODULES = Object.freeze([
   'providers/reasonix/paths.js',
   'providers/reasonix/sessionGuard.js',
   'providers/dsh/paths.js',
-  'providers/devin/paths.js',
   'projectKey.js',
   'syncUploadInterval.js',
   'subscriptionDisplay.js',
   'currency.js',
   'clientHealth.js',
-  'hubProtocol.js',
   'hubBuildIdentity.js'
 ]);
 const WORKER_SHARED_PACKAGE = Object.freeze({

@@ -3,13 +3,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { isDeepStrictEqual } = require('node:util');
-const { sharedDataDir, writeJsonAtomic } = require('./config');
+const { readJson, sharedDataDir, writeJsonAtomic } = require('./config');
 const {
   normalizeTokscaleClientName, num, sumOutputTokens, sumTokens
 } = require('./history');
-const {
-  CLIENT_IDENTITY_GENERATION, CLIENT_IDENTITY_SPLITS, isPreSplitEntry
-} = require('./clientIdentitySplits');
 
 const ARCHIVE_VERSION = 1;
 const DAY_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -138,25 +135,7 @@ function normalizeComponentSummary(value, observations) {
     }
     return result;
   };
-  const foldComponentMapByClient = (map) => {
-    if (!map || typeof map !== 'object') return map;
-    const folded = {};
-    for (const [rawClient, comp] of Object.entries(map)) {
-      const client = normalizeTokscaleClientName(rawClient) || rawClient;
-      if (!folded[client]) {
-        folded[client] = { ...comp };
-      } else {
-        folded[client] = {
-          cacheReadTokens: num(folded[client].cacheReadTokens) + num(comp?.cacheReadTokens),
-          cacheWriteTokens: num(folded[client].cacheWriteTokens) + num(comp?.cacheWriteTokens),
-          outputTokens: num(folded[client].outputTokens) + num(comp?.outputTokens),
-          unclassifiedTokens: num(folded[client].unclassifiedTokens) + num(comp?.unclassifiedTokens)
-        };
-      }
-    }
-    return folded;
-  };
-  const perClient = normalizeMap(foldComponentMapByClient(value.perClient), tokenMaps.perClient);
+  const perClient = normalizeMap(value.perClient, tokenMaps.perClient);
   const perModel = normalizeMap(value.perModel, tokenMaps.perModel);
   if (!perClient || !perModel) return null;
   return {
@@ -188,12 +167,6 @@ function normalizeDay(value, fallbackDate = '') {
   return {
     date,
     activeTimeMs: Math.max(0, Math.round(num(value?.activeTimeMs))),
-    // Provenance travels with the day. An archive written before the split has
-    // no marker, which is what makes it recognizable as merged-era; a day this
-    // version writes carries the current generation and is taken at face value.
-    ...(value?.clientIdentityGeneration !== undefined
-      ? { clientIdentityGeneration: num(value.clientIdentityGeneration) }
-      : {}),
     observations,
     ...(componentSummary ? { componentSummary } : {})
   };
@@ -220,28 +193,7 @@ function graphsArray(graphs) {
   return (Array.isArray(graphs) ? graphs : [graphs]).filter((graph) => graph && typeof graph === 'object');
 }
 
-// A day that was first observed while two clients shared one row keeps that
-// merged identity: the archived row already contains both products' usage, so
-// replaying a post-split scan of the same day as two rows would count the split
-// client twice. Folding is decided by the day's own provenance rather than by
-// its current contents, because "holds the merged id and not the split id" is a
-// legal post-split state: a day whose first scan sees only Pi looks exactly like
-// a merged-era day, and folding it would permanently absorb Oh My Pi into Pi for
-// every later scan of that day. A day with no generation marker predates the
-// split and is the only kind that may be folded; a day this version wrote carries
-// the current generation and is taken at face value.
-function foldClientForDate(client, date, options = {}) {
-  if (!client) return client;
-  const day = options.archive?.days?.[date];
-  if (!day || !isPreSplitEntry(day)) return client;
-  for (const { merged, split } of CLIENT_IDENTITY_SPLITS) {
-    if (client !== split) continue;
-    return merged;
-  }
-  return client;
-}
-
-function observationsFromGraphs(graphs, options = {}) {
+function observationsFromGraphs(graphs) {
   const days = new Map();
   for (const graph of graphsArray(graphs)) {
     for (const row of (Array.isArray(graph.contributions) ? graph.contributions : [])) {
@@ -250,7 +202,7 @@ function observationsFromGraphs(graphs, options = {}) {
       const day = days.get(date) || { date, activeTimeMs: 0, observations: {} };
       day.activeTimeMs += Math.max(0, Math.round(num(row.activeTimeMs ?? row.active_time_ms)));
       for (const raw of (Array.isArray(row?.clients) ? row.clients : [])) {
-        const client = foldClientForDate(normalizeTokscaleClientName(raw?.client), date, options) || 'unknown';
+        const client = normalizeTokscaleClientName(raw?.client) || 'unknown';
         const candidate = normalizeObservation({
           ...raw,
           client,
@@ -284,22 +236,14 @@ function captureDailyHistoryArchive(existingArchive, graphs, options = {}) {
   const archive = normalizeDailyHistoryArchive(existingArchive);
   const todayKey = String(options.todayKey || '').slice(0, 10);
   const hasTodayKey = DAY_KEY_RE.test(todayKey);
-  const incomingDays = observationsFromGraphs(graphs, { archive });
+  const incomingDays = observationsFromGraphs(graphs);
 
   for (const [date, incoming] of incomingDays) {
     if (hasTodayKey && date > todayKey) continue;
-    const existing = archive.days[date] || null;
-    const previous = existing || { date, activeTimeMs: 0, observations: {} };
-    // A day already stored without a marker predates the split, so it keeps that
-    // status: its observations genuinely span both products and must keep folding.
-    // Anything else is written at the current generation, which is what stops a
-    // post-split day from being absorbed into the merged id when Pi happens to be
-    // scanned first.
-    const legacy = existing !== null && isPreSplitEntry(existing);
+    const previous = archive.days[date] || { date, activeTimeMs: 0, observations: {} };
     const next = {
       date,
       activeTimeMs: Math.max(previous.activeTimeMs, incoming.activeTimeMs),
-      ...(legacy ? {} : { clientIdentityGeneration: CLIENT_IDENTITY_GENERATION }),
       observations: { ...previous.observations }
     };
     for (const [key, observation] of Object.entries(incoming.observations)) {
@@ -454,33 +398,6 @@ function liveDayIsGreater(incoming, previous) {
   return dayCost(incoming) !== dayCost(previous);
 }
 
-// A Cursor liveDay keeps the cost of the moment it was captured, while the
-// graph reprices that day's same events on every scan. For Cursor usage both
-// hold, the graph's cost is the current one and the liveDay's only fills a
-// graph cost that is missing. That holds whichever day liveDayIsGreater keeps:
-// a liveDay chosen because another observation grew must not carry a stale
-// Cursor cost along, and a graph day kept because the aggregate cost happened
-// to tie must still take a price only the liveDay has. Every other client keeps
-// the bidirectional repricing liveDayIsGreater allows.
-function withReconciledCursorCosts(day, graphDay, liveDay) {
-  let changed = false;
-  const observations = Object.fromEntries(Object.entries(day.observations).map(([key, observation]) => {
-    const graphObservation = graphDay.observations[key];
-    const liveObservation = liveDay.observations[key];
-    if (normalizeTokscaleClientName(observation.client) !== 'cursor'
-      || !graphObservation
-      || !liveObservation
-      || num(graphObservation.tokens) !== num(liveObservation.tokens)) {
-      return [key, observation];
-    }
-    const cost = num(graphObservation.cost) > 0 ? graphObservation.cost : liveObservation.cost;
-    if (num(cost) === num(observation.cost)) return [key, observation];
-    changed = true;
-    return [key, { ...observation, cost }];
-  }));
-  return changed ? { ...day, observations } : day;
-}
-
 function mergeLiveDayMetadata(liveDay, previousDay) {
   if (!previousDay) return liveDay;
   const observations = Object.fromEntries(Object.entries(liveDay.observations).map(([key, observation]) => {
@@ -556,8 +473,8 @@ function graphTimeMetrics(graphs, activeTimeMs) {
 }
 
 function graphFromDailyHistoryArchive(graphs, archive, options = {}) {
+  const currentDays = observationsFromGraphs(graphs);
   const normalizedArchive = normalizeDailyHistoryArchive(archive);
-  const currentDays = observationsFromGraphs(graphs, { archive: normalizedArchive });
   const todayKey = String(options.todayKey || '').slice(0, 10);
   const hasTodayKey = DAY_KEY_RE.test(todayKey);
 
@@ -568,11 +485,8 @@ function graphFromDailyHistoryArchive(graphs, archive, options = {}) {
   for (const [date, liveDay] of Object.entries(normalizedArchive.liveDays || {})) {
     if (hasTodayKey && date > todayKey) continue;
     const previous = currentDays.get(date);
-    if (!previous) {
-      currentDays.set(date, liveDay);
-    } else {
-      const selected = liveDayIsGreater(liveDay, previous) ? mergeLiveDayMetadata(liveDay, previous) : previous;
-      currentDays.set(date, withReconciledCursorCosts(selected, previous, liveDay));
+    if (!previous || liveDayIsGreater(liveDay, previous)) {
+      currentDays.set(date, mergeLiveDayMetadata(liveDay, previous));
     }
   }
 
@@ -617,45 +531,9 @@ function dailyHistoryArchivePath(options = {}) {
   return options.path || path.join(sharedDataDir(options), 'daily-history-archive.json');
 }
 
-function validateDailyHistoryArchiveDocument(value, filePath) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`Could not parse JSON in ${filePath}: archive root must be an object`);
-  }
-  for (const key of ['days', 'liveDays']) {
-    if (Object.prototype.hasOwnProperty.call(value, key)
-      && (!value[key] || typeof value[key] !== 'object' || Array.isArray(value[key]))) {
-      throw new Error(`Could not parse JSON in ${filePath}: ${key} must be an object`);
-    }
-  }
-  return value;
-}
-
 function readDailyHistoryArchive(options = {}) {
-  const filePath = dailyHistoryArchivePath(options);
-  if (typeof options.readJson === 'function') {
-    return normalizeDailyHistoryArchive(
-      validateDailyHistoryArchiveDocument(options.readJson(filePath, {}), filePath)
-    );
-  }
-  let content;
-  try {
-    content = fs.readFileSync(filePath, 'utf8');
-  } catch (error) {
-    if (error?.code === 'ENOENT') return normalizeDailyHistoryArchive({});
-    throw error;
-  }
-  if (!content.trim()) {
-    throw new Error(`Could not parse JSON in ${filePath}: archive is empty`);
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(content);
-  } catch (error) {
-    const parseError = new Error(`Could not parse JSON in ${filePath}: ${error.message}`);
-    parseError.cause = error;
-    throw parseError;
-  }
-  return normalizeDailyHistoryArchive(validateDailyHistoryArchiveDocument(parsed, filePath));
+  const read = options.readJson || readJson;
+  return normalizeDailyHistoryArchive(read(dailyHistoryArchivePath(options), {}));
 }
 
 function writeDailyHistoryArchive(archive, options = {}) {
