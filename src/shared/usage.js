@@ -263,6 +263,7 @@ if (raw.includes('micode') || raw.includes('mimo')) return 'mimo';
   if (/cherry[\s_-]*studio/.test(raw)) return 'cherrystudio';
   if (/lm[\s_-]*studio/.test(raw)) return 'lmstudio';
   if (/^unsloth(?:[\s_-]+(?:studio|api))?$/.test(raw)) return 'unsloth';
+  if (raw === 'mcode' || /^minimax[\s_-]+code$/.test(raw)) return 'mcode';
   if (raw.includes('dsh')) return 'dsh';
   if (raw.includes('devin')) return 'devin';
   if (raw.includes('opencode')) return 'opencode';
