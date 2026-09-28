@@ -9,8 +9,8 @@ const { abortReason, throwIfAborted } = require('./abortSignal');
 const { readJson, sharedDataDir } = require('./config');
 const { appVersion } = require('./appVersion');
 const { normalizeClientsCsv, PARSE_LOCAL_CLIENTS } = require('./clientTracking');
-const { antigravityCliDataDir, canonicalWatchPath, cherryStudioTranscriptRoots, clientSourceRoots, copilotExporterWatch, tokscaleHeadlessRoots, xdgDataHome } = require('./clientSources');
-const { clientDiagnosticRoots, clientSourceChecks, dirExists, hasCopilotChatSessions, visibleDiagnosticRoots } = require('./clientSourceObservations');
+const { antigravityCliDataDir, canonicalWatchPath, cherryStudioTranscriptRoots, clientSourceRoots, copilotExporterWatch } = require('./clientSources');
+const { clientDiagnosticRoots, clientSourceChecks, dirExists, visibleDiagnosticRoots } = require('./clientSourceObservations');
 const {
   CLIENT_HEALTH_VERSION,
   MAX_DIAGNOSTICS_PER_CLIENT,
@@ -60,8 +60,7 @@ const {
 const {
   buildMcodeDesktopHistoryGraph,
   buildMcodeDesktopPeriods,
-  collectMcodeDesktopRows,
-  mcodeDesktopSessionsRoot
+  collectMcodeDesktopRows
 } = require('./mcodeDesktopUsage');
 const {
   createReasonixNativeSessionCache,
@@ -1708,79 +1707,6 @@ async function collectUsageOnce(options) {
   return summary;
 }
 
-const KIMI_WORK_RUNTIME_SUFFIX = path.join(
-  'daimon',
-  'runtime',
-  'kimi-code',
-  'home',
-  'sessions'
-);
-
-const KIMI_WORK_SESSIONS_SUFFIX = path.join(
-  'kimi-desktop',
-  'daimon-share',
-  KIMI_WORK_RUNTIME_SUFFIX
-);
-
-// Kimi sessions (CLI `session_*`, Work `conv-*`/`ctitle-*`) put their workspace
-// in a sibling state.json (`workDir` / `custom.workspacePath`), not in the wire
-// stream tokscale parses. The session id is the directory name directly under a
-// workspace dir. Enumerate the on-disk session dirs once instead of probing the
-// workspace x requested-session Cartesian product on the Electron main thread.
-function readKimiSessionStateFiles(roots, sessionIds) {
-  const wanted = new Set(sessionIds);
-  const found = new Map();
-  for (const root of roots) {
-    if (found.size >= wanted.size) break;
-    let workspaceDirs;
-    try { workspaceDirs = fs.readdirSync(root, { withFileTypes: true }); } catch (_) { continue; }
-    for (const workspace of workspaceDirs) {
-      if (!workspace.isDirectory()) continue;
-      let sessionDirs;
-      try { sessionDirs = fs.readdirSync(path.join(root, workspace.name), { withFileTypes: true }); } catch (_) { continue; }
-      for (const session of sessionDirs) {
-        const sessionId = session.name;
-        if (!session.isDirectory() || !wanted.has(sessionId) || found.has(sessionId)) continue;
-        const statePath = path.join(root, workspace.name, sessionId, 'state.json');
-        if (fileExists(statePath)) found.set(sessionId, statePath);
-      }
-      if (found.size >= wanted.size) break;
-    }
-  }
-  return found;
-}
-
-function kimiStateMetadata(statePath, options = {}) {
-  let state;
-  try { state = JSON.parse(fs.readFileSync(statePath, 'utf8')); } catch (_) { return {}; }
-  if (!state || typeof state !== 'object') return {};
-  const stringValue = (value) => typeof value === 'string' ? value.trim() : '';
-  const projectPath = stringValue(state.workDir) || stringValue(state.custom?.workspacePath);
-  const identity = options.resolveProjects === false
-    ? {}
-    : projectIdentity(projectPath);
-  // Kimi writes valid ISO strings in state.json; pass them through as-is.
-  const startedAt = stringValue(state.createdAt);
-  const lastUsedAt = stringValue(state.updatedAt);
-  return {
-    ...(identity.projectId ? identity : {}),
-    ...(startedAt ? { startedAt } : {}),
-    ...(lastUsedAt ? { lastUsedAt } : {})
-  };
-}
-
-// Where tokscale looks for captured `codex exec --json` output. Both defaults
-// are scanned on every platform — upstream pushes them with no cfg gate, so the
-// Application Support one is not a macOS variant of the .config one — and
-// TOKSCALE_HEADLESS_DIR replaces the pair rather than adding to it
-// (scanner.rs `headless_roots_with_env_strategy`). Neither default follows
-// XDG_CONFIG_HOME: upstream spells the .config path as a literal.
-//
-// `optional` marks a root whose absence carries no information. Nobody has
-// these unless they opted into a capture workflow, so the diagnostics panel
-// hides them when they are missing rather than showing them struck through
-// beside a real "Codex wrote nothing here". A configured root is the opposite:
-// the user named that path, so its absence is exactly what they want to see.
 // Per-client data-dir candidates, keyed by client. Drives the detection-status
 // derivation and, after the interval-only/self-synced projections below, the
 // chokidar watch list; Antigravity's read-only source roots are added back
