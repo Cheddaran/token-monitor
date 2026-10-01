@@ -981,6 +981,64 @@ test('normalizeClientName keeps Qoder CN distinct from international Qoder', () 
   assert.equal(normalizeClientName('Qoder'), 'qoder');
 });
 
+test('Muse scan rows and display names share the tracked client id', () => {
+  assert.equal(normalizeClientName('muse'), 'muse');
+  assert.equal(normalizeClientName('Muse Code'), 'muse');
+  const period = extractUsageFromTokscale([{ client: 'muse', model: 'muse-spark', totalTokens: 12 }]);
+  assert.equal(period.clients.muse, 12);
+});
+
+test('Muse rows fold Tokscale disjoint reasoning into output and totals', () => {
+  // Tokscale splits a Responses-shaped usage record: 379 output includes 278
+  // reasoning at the source, but its JSON row reports output 101 and reasoning
+  // 278 as additive buckets, with no explicit total.
+  const period = extractUsageFromTokscale({
+    groupBy: 'client,session,model',
+    entries: [{
+      client: 'muse', sessionId: 'muse-session', model: 'muse-spark-1.3-contributor',
+      input: 21859, output: 101, cacheRead: 5105, cacheWrite: 0,
+      reasoning: 278, messageCount: 1, cost: 0.1,
+      timestamp: '2026-09-28T00:00:00.000Z'
+    }]
+  });
+  assert.equal(period.totalTokens, 27343);
+  assert.equal(period.clients.muse, 27343);
+  assert.equal(period.clientOutputs.muse, 379);
+  const session = period.sessions['muse:muse-session'];
+  assert.equal(session.totalTokens, 27343);
+  assert.equal(session.outputTokens, 379);
+  assert.equal(session.reasoningTokens, 278);
+});
+
+test('fx scan rows and the display name share the tracked client id', () => {
+  assert.equal(normalizeClientName('fx'), 'fx');
+  assert.equal(normalizeClientName('Fx'), 'fx');
+  const period = extractUsageFromTokscale([{ client: 'fx', model: 'glm-5.2', totalTokens: 12 }]);
+  assert.equal(period.clients.fx, 12);
+});
+
+test('fx rows keep Tokscale reasoning inside the output bucket', () => {
+  // fx's snapshot already counts reasoning inside output_tokens (the wire
+  // schema rejects reasoning > output) and the parser emits both buckets
+  // verbatim — so unlike muse/dsh nothing is added back here.
+  const period = extractUsageFromTokscale({
+    groupBy: 'client,session,model',
+    entries: [{
+      client: 'fx', sessionId: 'fx-session', model: 'glm-5.2',
+      input: 1200, output: 340, cacheRead: 500, cacheWrite: 80,
+      reasoning: 60, messageCount: 4, cost: 0.0314,
+      timestamp: '2026-09-29T00:00:00.000Z'
+    }]
+  });
+  assert.equal(period.totalTokens, 2120);
+  assert.equal(period.clients.fx, 2120);
+  assert.equal(period.clientOutputs.fx, 340);
+  const session = period.sessions['fx:fx-session'];
+  assert.equal(session.totalTokens, 2120);
+  assert.equal(session.outputTokens, 340);
+  assert.equal(session.reasoningTokens, 60);
+});
+
 test('normalizeClientName maps MiniMax Code and its product label to mcode', () => {
   assert.equal(normalizeClientName('mcode'), 'mcode');
   assert.equal(normalizeClientName('MiniMax Code'), 'mcode');

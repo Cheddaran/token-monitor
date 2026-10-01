@@ -12,6 +12,7 @@ const {
   handleBreakdownRowKeydown,
   sessionBreakdownIncomplete,
   sessionIdLabel,
+  sessionModelTooltipEntries,
   sessionRowsForPeriod
 } = require('../../src/electron/renderer/sessionRows');
 
@@ -116,6 +117,123 @@ test('session rows group client and model apart from activity metadata', () => {
   assert.equal(row.detail, 'titled');
 });
 
+test('multi-model sessions expose every model with its tokens and share of the session', () => {
+  const session = {
+    totalTokens: 100,
+    models: { 'gpt-5.6-sol': 70, 'claude-opus-5': 20 }
+  };
+  assert.deepEqual(sessionModelTooltipEntries(session), [
+    ['gpt-5.6-sol', '70', '70%'],
+    ['claude-opus-5', '20', '20%'],
+    ['Unclassified', '10', '10%']
+  ]);
+  assert.deepEqual(sessionModelTooltipEntries(session, { unattributedLabel: '未分類' }).at(-1), [
+    '未分類', '10', '10%'
+  ]);
+  // The rows follow the heaviest model first, not the models map's order,
+  // with the tokens no model claimed trailing them.
+  assert.deepEqual(
+    sessionModelTooltipEntries({ totalTokens: 100, models: { 'claude-opus-5': 20, 'gpt-5.6-sol': 70 } })
+      .map(([model]) => model),
+    ['gpt-5.6-sol', 'claude-opus-5', 'Unclassified']
+  );
+});
+
+test('model tooltip shares read the session total and floor at a real sliver', () => {
+  // Models can out-sum the recorded total (overlapping reads); the share is
+  // then of the attributed tokens rather than over 100% each.
+  assert.deepEqual(sessionModelTooltipEntries({ totalTokens: 30, models: { a: 30, b: 10 } }), [
+    ['a', '30', '75%'],
+    ['b', '10', '25%']
+  ]);
+  assert.deepEqual(sessionModelTooltipEntries({ totalTokens: 1000, models: { a: 999, b: 1 } }), [
+    ['a', '999', '100%'],
+    ['b', '1', '<1%']
+  ]);
+  // Fewer than two models never abbreviates to "N models", so there is no
+  // tooltip behind a label that names the model already.
+  assert.deepEqual(sessionModelTooltipEntries({ totalTokens: 10, models: { a: 10 } }), []);
+  assert.deepEqual(sessionModelTooltipEntries({ totalTokens: 10, models: { a: 10, b: 0 } }), []);
+  assert.deepEqual(sessionModelTooltipEntries(null), []);
+});
+
+test('session rows carry the model tooltip entries behind the "N models" label', () => {
+  const [row] = sessionRowsForPeriod({ sessions: {
+    'codex:mixed': {
+      client: 'codex',
+      sessionId: 'mixed',
+      title: 'Mixed run',
+      totalTokens: 100,
+      models: { 'gpt-5.6-sol': 60, 'gpt-5.6': 40 },
+      lastUsedAt: localIso(2026, 5, 30, 12, 7)
+    }
+  } }, {
+    clientLabels,
+    clientColors,
+    now: new Date(2026, 4, 30, 12, 30),
+    unattributedLabel: 'Unclassified'
+  });
+  assert.equal(row.modelLabel, '2 models');
+  assert.equal(row.subtitle, 'Codex · 2 models');
+  assert.deepEqual(row.modelTooltipEntries, [
+    ['gpt-5.6-sol', '60', '60%'],
+    ['gpt-5.6', '40', '40%']
+  ]);
+});
+
+test('a hovered background-review run tooltip holds the session repaint', () => {
+  // The periodic rebuild of an open review detail replaces every run node;
+  // sessionTooltipShouldHoldRender is what keeps a tooltip open through it.
+  // The guard's selector must cover the run title, which carries the wrap
+  // class itself — matching only the Sessions list's containers would leave
+  // this surface unprotected.
+  const source = fs.readFileSync(path.join(__dirname, '../../src/electron/renderer/app.js'), 'utf8');
+  const body = source.slice(
+    source.indexOf('function sessionTooltipShouldHoldRender('),
+    source.indexOf('function flushPendingLimitDetailTooltipRender(')
+  );
+  const matchesPart = (part, el) => {
+    const compounds = part.trim().split(/\s+/);
+    const [cls, ...pseudos] = compounds.at(-1).split(':');
+    if (!cls.split('.').filter(Boolean).every((c) => el.classes.includes(c))) return false;
+    if (pseudos.includes('hover') && !el.hovered) return false;
+    if (pseudos.includes('focus-within') && !el.focusWithin) return false;
+    let anc = el.parent;
+    for (let i = compounds.length - 2; i >= 0; i -= 1) {
+      const required = compounds[i].split('.').filter(Boolean);
+      while (anc && !required.every((c) => anc.classes.includes(c))) anc = anc.parent;
+      if (!anc) return false;
+      anc = anc.parent;
+    }
+    return true;
+  };
+  const document = {
+    element: null,
+    querySelector(selector) {
+      return this.element && selector.split(',').some((part) => matchesPart(part, this.element))
+        ? this.element
+        : null;
+    }
+  };
+  const shouldHold = Function('document', `${body}\nreturn sessionTooltipShouldHoldRender;`)(document);
+
+  for (const flag of ['hovered', 'focusWithin']) {
+    document.element = { classes: ['detail-ex-title', 'limit-detail-tooltip-wrap'], [flag]: true, parent: null };
+    assert.equal(shouldHold(), true);
+  }
+  document.element = { classes: ['detail-ex-title', 'limit-detail-tooltip-wrap'], parent: null };
+  assert.equal(shouldHold(), false);
+});
+
+test('the periodic review-detail rebuild defers to the tooltip hold', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../../src/electron/renderer/app.js'), 'utf8');
+  const branch = source.slice(
+    source.indexOf("state.openSession.kind === 'background-review-group'"),
+    source.indexOf('state.openSession.renderOptions')
+  );
+  assert.match(branch, /!sessionTooltipShouldHoldRender\(\)/);
+});
+
 test('Codex merged rollout labels contain UUIDs only', () => {
   const first = '01a084ff-20ff-7563-beb4-045b31e5a47a';
   const second = '01a0876b-d178-7be2-a485-529a745ea1b0';
@@ -164,8 +282,56 @@ test('background review sessions collapse into one interactive aggregate row wit
     'session:codex:review-a',
     'session:codex:review-b'
   ]);
+  assert.deepEqual(collapsed[1].backgroundReviewRows.map((row) => row.modelLabel), [
+    'codex-auto-review',
+    'gpt-5.6-sol'
+  ]);
   assert.equal(Object.hasOwn(collapsed[1], 'sessionGroupExpanded'), false);
   assert.equal(Object.hasOwn(collapsed[1], 'sessionDetailAvailable'), false);
+});
+
+test('background review run headings show the model independently of session titles and keep the time', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../../src/electron/renderer/app.js'), 'utf8');
+  const body = source.slice(source.indexOf('function backgroundReviewRunNode('), source.indexOf('function renderBackgroundReviewDetail('));
+  const sessionRowsApi = require('../../src/electron/renderer/sessionRows');
+  let opened;
+  const createNode = () => {
+    const children = new Map();
+    return {
+      events: {},
+      setAttribute() {},
+      querySelector(selector) {
+        if (!children.has(selector)) children.set(selector, {});
+        return children.get(selector);
+      },
+      addEventListener(type, handler) { this.events[type] = handler; }
+    };
+  };
+  const render = Function('document', 'sessionRowsApi', 't', 'formatNumber', 'formatCost', 'applyBarScale', 'rowWidth', 'openSessionDetail', 'bindHoverMarquee', 'limitWindowsView', `${body}\nreturn backgroundReviewRunNode;`)(
+    { createElement: createNode }, sessionRowsApi, () => 'Codex Auto Review', String, String, () => {}, () => 100,
+    (request) => { opened = request; }, () => {}, { setDetailTooltip() {} }
+  );
+  for (const [models, expectedModel] of [
+    [{ 'gpt-5.6-sol': 30 }, 'gpt-5.6-sol'],
+    [{ 'gpt-5.6-sol': 20, 'gpt-5.6': 10 }, '2 models'],
+    [{}, '']
+  ]) {
+    const [row] = sessionRowsForPeriod({ sessions: { 'codex:review': {
+      client: 'codex', sessionId: 'review', title: 'Automatic review', sessionKind: 'background-review',
+      totalTokens: 30, models, lastUsedAt: new Date().toISOString()
+    } } });
+    const parent = { kind: 'background-review-group' };
+    const node = render(row, 30, parent);
+    const time = sessionRowsApi.compactSessionTime(row.sortTime);
+    const expectedTitle = [expectedModel, time].filter(Boolean).join(' · ');
+    assert.equal(node.querySelector('.detail-ex-title').textContent, expectedTitle);
+    assert.equal(node.querySelector('.detail-ex-title').title, expectedTitle);
+    assert.equal(node.querySelector('.detail-ex-sub').textContent, 'review');
+    node.events.click();
+    assert.equal(opened.title, expectedTitle);
+    assert.equal(opened.sessionId, 'review');
+    assert.equal(opened.returnTo, parent);
+  }
 });
 
 test('model name alone does not hide an ordinary Codex session in background reviews', () => {
@@ -458,8 +624,7 @@ test('session layout keeps page chrome consistent and scrolls long labels on one
   assert.match(styles, /\.shell\.session-mode \.row-detail\.is-hover-scrolling\s*\{[^}]*text-overflow:\s*clip;/s);
   assert.match(styles, /\.shell\.session-mode \.session-row \.row-metrics::after,[^{]+\{[^}]*position:\s*absolute;[^}]*bottom:\s*0;/s);
   assert.match(renderer, /class="row-activity"/);
-  assert.match(renderer, /function setHoverMarqueeText\([^]*?element\.removeAttribute\('title'\);\n}/);
-  assert.doesNotMatch(renderer, /function setHoverMarqueeText\([^]*?element\.title\s*=/);
+  assert.match(renderer, /function setHoverMarqueeText\([^]*?overflowText\.setText\(element, value\)/);
 });
 
 test('a session still being written to is marked running and shows its context headroom', () => {
@@ -577,4 +742,56 @@ test('an archived session is never running and a half-read context is not shown'
   const windowless = rows.find((row) => row.key === 'session:claude:windowless');
   assert.equal(windowless.running, true);
   assert.equal(windowless.context, undefined);
+});
+
+test('session rows keep a completed session cache when the recent context expires in every period', () => {
+  const at = Date.parse('2026-09-30T09:00:00Z');
+  const session = { client: 'codex', sessionId: 'cache-session', totalTokens: 100, lastUsedAt: new Date(at).toISOString(), turnEnded: true,
+    contextTokens: 60, contextWindow: 100, promptCache: { observedAt: new Date(at).toISOString(), ttlSeconds: 1800 } };
+  for (const period of ['today', 'month', 'allTime']) {
+    const before = sessionRowsForPeriod({ sessions: { cache: session } }, { now: new Date(at + 600_000) })[0];
+    assert.equal(before.context.percentUsed, 60, period);
+    const after = sessionRowsForPeriod({ sessions: { cache: session } }, { now: new Date(at + 600_001) })[0];
+    assert.equal(after.context, undefined, period);
+    assert.equal(after.promptCache.minutes, 20, period);
+    assert.equal(after.contextSnapshot.contextTokens, 60, period);
+    assert.equal(after.contextSnapshot.contextWindow, 100, period);
+    assert.equal(sessionRowsForPeriod({ sessions: { cache: session } }, { now: new Date(at + 1800_000) })[0].promptCache, null, period);
+  }
+});
+
+test('the shared metrics slot restores its meter and tone after cache or empty states', () => {
+  const fs = require('node:fs');
+  const source = fs.readFileSync(require.resolve('../../src/electron/renderer/app.js'), 'utf8');
+  const body = source.slice(source.indexOf('function updateRowContext('), source.indexOf('// Flare the row', source.indexOf('function updateRowContext(')));
+  const element = () => {
+    const classes = new Set();
+    return { dataset: {}, textContent: '', classList: { add: x => classes.add(x), remove: x => classes.delete(x), toggle: (x, on) => on ? classes.add(x) : classes.delete(x), contains: x => classes.has(x) }, removeAttribute(name) { delete this[name]; } };
+  };
+  const gauge = element(), meter = element(), value = element(), fill = { style: { setProperty() {} } };
+  gauge.querySelector = selector => ({ '.row-context-meter': meter, '.row-context-value': value, '.row-context-fill': fill })[selector];
+  const row = { querySelector: () => gauge };
+  const update = Function('state', 't', 'sessionRowsApi', 'limitWindowsView', body + '\nreturn updateRowContext;')({ settings: {} }, (key, params) => `${key}:${JSON.stringify(params)}`, require('../../src/electron/renderer/sessionRows'), { setDetailTooltip(node, entries) { node.entries = entries; } });
+  update(row, { percentLeft: 5, percentUsed: 95, tone: 'low' });
+  assert.equal(gauge.dataset.tone, 'low');
+  update(row, null, { minutes: 20, ttlSeconds: 1800 }, { contextTokens: 123000, contextWindow: 200000 });
+  assert.equal(gauge.classList.contains('hidden'), false);
+  assert.equal(meter.classList.contains('hidden'), true);
+  assert.equal(gauge.dataset.tone, '');
+  assert.match(value.textContent, /20/);
+  assert.equal(gauge.entries[0].full, '123K / 200K');
+  assert.match(gauge.entries[1].full, /20/);
+  update(row, { percentLeft: 40, percentUsed: 60, tone: '' });
+  assert.equal(meter.classList.contains('hidden'), false);
+  assert.equal(value.textContent, '60%');
+  update(row, { percentLeft: 40, percentUsed: 60, tone: '', contextTokens: 123000, contextWindow: 200000 }, { minutes: 29, ttlSeconds: 1800 });
+  assert.equal(value.textContent, '60%');
+  assert.match(gauge.entries.at(-1).full, /29/);
+  assert.equal(gauge.entries[0].full, '123K / 200K');
+  update(row, { percentLeft: 40, percentUsed: 60, tone: '' }, null, 'codex');
+  assert.equal(gauge.entries.length, 0);
+  update(row, null, null);
+  assert.equal(gauge.classList.contains('hidden'), true);
+  assert.equal(gauge.title, undefined);
+  assert.deepEqual(gauge.entries, []);
 });

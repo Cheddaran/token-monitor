@@ -89,8 +89,9 @@ const {
 } = require('../shared/providers/antigravity/selfSync');
 const { deviceRecordFromAnchor } = require('../shared/anchorSeed');
 const { sendWhenRendererReady } = require('./deferredWindowSend');
-const { actionWindowForEvent, handoffWindow, showWindow } = require('./windowLifecycle');
+const { actionWindowForEvent, activateWindowAction, handoffWindow, showWindow } = require('./windowLifecycle');
 const { applyInitialLimitProviderSeed } = require('./initialLimitProviderSeed');
+const { applyCodexAdditionalLimitsMigration } = require('./codexAdditionalLimitsMigration');
 const { createDeviceRuntime } = require('../shared/usage/deviceRuntime');
 const { externalAgentActive } = require('../shared/usage/agentPid');
 const { createDiagnosticJournal } = require('../shared/diagnosticJournal');
@@ -116,6 +117,7 @@ const {
 } = require('../shared/limits/collector');
 const { createCursorUsageEventIndex } = require('../shared/providers/cursor/usageEvents');
 const { limitProviderUrlAllowed } = require('../shared/limits/accounts');
+const { normalizeLimitProviderHiddenItems } = require('../shared/limits/usageItems');
 const {
   accountFieldProjection,
   accountStatusProjection,
@@ -333,6 +335,8 @@ const {
 const { createSseBlockReader, parseSseBlock } = require('./sseEventReader');
 const { createSyncUploadScheduler, normalizeSyncUploadIntervalMs } = require('./syncUploadScheduler');
 const { createLatestWinsReconciler } = require('./latestWinsReconciler');
+const { createIcloudSyncStore } = require('./icloudSync');
+const { createIcloudSyncRuntime } = require('./icloudSyncRuntime');
 const {
   classifySettingsChange,
   diagnosticConfigurationFromSettings,
@@ -389,8 +393,10 @@ const {
 } = require('./floatingBubble');
 const { applyWindowsChrome } = require('./windowsChrome');
 const { canUseEdgeDock, createEdgeDockController, edgeDockSupported } = require('./edgeDock/controller');
+const { createFullScreenProbe } = require('./edgeDock/fullScreenProbe');
 const {
   normalizeEdgeDockDisplayId,
+  normalizeEdgeDockMode,
   normalizeEdgeDockOffset,
   normalizeEdgeDockSide
 } = require('./edgeDock/geometry');
@@ -461,7 +467,7 @@ const CSP_HEADER = [
   "frame-ancestors 'none'"
 ].join('; ');
 const TRAY_CONTENT_VALUES = new Set(['tokens', 'cost', 'both', 'tokensAll', 'costAll', 'bothAll', 'limitsAllSessions', 'liveTokenRate', 'bars', 'barsSession', 'barsWeekly', 'barsAllSessions', 'icon', 'custom']);
-const HUB_MODE_VALUES = new Set(['local', 'client', 'host']);
+const HUB_MODE_VALUES = new Set(['local', 'client', 'host', 'icloud']);
 const LANGUAGE_VALUES = new Set(LANGUAGE_OPTIONS.map((option) => option.value));
 const COLLECTION_MODE_VALUES = new Set(['live', 'smart', 'interval']);
 const COLLECTION_INTERVAL_OPTIONS = [5 * 60 * 1000, 15 * 60 * 1000, 30 * 60 * 1000];
@@ -474,8 +480,8 @@ const SMART_COLLECTION_INTERVAL_MS = 10 * 60 * 1000;
 const DEFAULT_COLLECTION_INTERVAL_MS = 5 * 60 * 1000;
 const HUB_DEFAULT_PORT = 17321;
 const KNOWN_CLIENT_LIST = KNOWN_CLIENTS.split(',').map((id) => ({ id }));
-const DEFAULT_VIEW_LIST = ['home', 'tool', 'status', 'device', 'model', 'project', 'session', 'limits', 'trends'].map((id) => ({ id }));
-const DEFAULT_HOME_MODULE_LIST = ['limits', 'tool', 'device', 'model', 'trends'].map((id) => ({ id }));
+const DEFAULT_VIEW_LIST = ['home', 'limits', 'tool', 'model', 'project', 'session', 'device', 'trends', 'status'].map((id) => ({ id }));
+const DEFAULT_HOME_MODULE_LIST = ['limits', 'tool', 'model', 'session', 'device', 'trends'].map((id) => ({ id }));
 const TRAY_OPEN_VIEW_IDS = new Set(['home', 'project', 'session', 'limits', 'trends', 'status']);
 
 let mainWindow = null;
@@ -584,6 +590,7 @@ function defaultSettings() {
     lastViewState: { period: 'today', breakdown: 'tool' },
     discordRpcEnabled: false,
     deviceId: process.env.TOKEN_MONITOR_DEVICE_ID || defaultDeviceId(),
+    icloudWriterId: '',
     lastPostedDeviceId: '',
     clients: clientsCsvForSetting(process.env.TOKEN_MONITOR_CLIENTS),
     customScanPaths: {},
@@ -621,6 +628,9 @@ function defaultSettings() {
     limitProviderOrder: defaultLimitProviderOrder(),
     homeLimitProviderOrder: '',
     hiddenHomeLimitProviders: '',
+    // Rows of a provider's limits card the user has hidden, as
+    // `{ providerId: [itemId, ...] }` (see shared/limits/usageItems).
+    limitProviderHiddenItems: {},
     homeLimitAccountCount: HOME_LIMIT_ACCOUNT_COUNT_DEFAULT,
     limitsRefreshMode: normalizeLimitsRefreshMode(process.env.TOKEN_MONITOR_LIMITS_REFRESH_MODE),
     limitsRefreshMs: normalizeLimitsRefreshMs(process.env.TOKEN_MONITOR_LIMITS_REFRESH_MS),
@@ -1925,8 +1935,11 @@ function normalizeTrayContent(value, fallback = 'tokens', allowedValues = TRAY_C
   return allowedValues.has(v) ? v : fallback;
 }
 
-function normalizeHubMode(value, fallback = 'local') {
+function normalizeHubMode(value, fallback = 'local', platform = process.platform) {
   const v = String(value || '').trim();
+  if (v === 'icloud' && platform !== 'darwin') {
+    return fallback === 'icloud' ? 'local' : fallback;
+  }
   return HUB_MODE_VALUES.has(v) ? v : fallback;
 }
 
@@ -2465,6 +2478,7 @@ function readSettings() {
     if (saved.hiddenHomeLimitProviders !== undefined) {
       merged.hiddenHomeLimitProviders = normalizeHiddenLimitProviders(saved.hiddenHomeLimitProviders);
     }
+    merged.limitProviderHiddenItems = normalizeLimitProviderHiddenItems(merged.limitProviderHiddenItems);
     merged.homeLimitAccountCount = normalizeHomeLimitAccountCount(merged.homeLimitAccountCount);
     merged.periodMonthMode = normalizePeriodMonthMode(merged.periodMonthMode);
     if (saved.historyEnabled !== undefined) {
@@ -2516,7 +2530,7 @@ function readSettings() {
     if (saved.lastViewState !== undefined) {
       merged.lastViewState = normalizeInitialRendererViewState(saved.lastViewState);
     }
-    merged.hubMode = normalizeHubMode(merged.hubMode);
+    merged.hubMode = normalizeHubMode(merged.hubMode, 'local', process.platform);
     merged.language = normalizeLanguageSetting(merged.language);
     merged.currency = normalizeCurrency(merged.currency);
     merged.currencyRates = normalizeCurrencyOverrides(merged.currencyRates);
@@ -2536,7 +2550,7 @@ function readSettings() {
     merged.edgeDockSide = normalizeEdgeDockSide(merged.edgeDockSide);
     merged.edgeDockOffset = normalizeEdgeDockOffset(merged.edgeDockOffset);
     merged.edgeDockDisplayId = normalizeEdgeDockDisplayId(merged.edgeDockDisplayId);
-    merged.edgeDockMode = merged.edgeDockMode === 'always' ? 'always' : 'autoHide';
+    merged.edgeDockMode = normalizeEdgeDockMode(merged.edgeDockMode);
     merged.edgeDockHaptic = parseBoolean(merged.edgeDockHaptic, true);
     merged.edgeDockWarnColors = parseBoolean(merged.edgeDockWarnColors, false);
     merged.edgeDockMacBackdrop = normalizeEdgeDockBackdropMode(merged.edgeDockMacBackdrop);
@@ -2596,6 +2610,16 @@ function seedInitialLimitProviders(summary) {
   });
 }
 
+// Runs on the presented stats rather than this device's record, so a Codex
+// account another device reports carries the switch over too.
+function migrateCodexAdditionalLimits(visibleStats) {
+  return applyCodexAdditionalLimitsMigration(visibleStats, {
+    settings,
+    saveSettings,
+    onPersisted: pushSettingsToRenderer
+  });
+}
+
 function loginItemEnabledHere() {
   if (!app.isPackaged) return false;
   // Electron login items only cover macOS/Windows; on Linux we manage an XDG
@@ -2640,6 +2664,7 @@ function localArchiveSourceDevice() {
   return selectLocalDeviceRecord({
     deviceId: settings?.deviceId || defaultDeviceId(),
     externalAgentActive: isExternalAgentActive(),
+    hubMode: settings?.hubMode,
     lastCollectedDevice,
     localDevice,
     latestHubStats: currentHubStatsCache(),
@@ -2817,6 +2842,9 @@ function withHistoryPreview(stats, devices) {
 
 let mode = 'idle';
 let deviceRuntimeHandle = null;
+let icloudRuntimeHandle = null;
+let icloudRuntimeEpoch = 0;
+let icloudRuntimeStopPromise = Promise.resolve();
 const USAGE_RECONFIGURE_SETTLE_MS = 750;
 const USAGE_RECONFIGURE_RETRY_DELAYS_MS = Object.freeze([1000, 3000, 10_000]);
 const usageRuntimeReconciler = createLatestWinsReconciler({
@@ -2953,7 +2981,9 @@ function currentHubStatsCache() {
     ? 'host'
     : hubMode === 'client'
       ? 'client'
-      : 'none';
+      : hubMode === 'icloud'
+        ? 'icloud'
+        : 'none';
   if (!latestHubStats
     || latestHubStatsSource !== expectedSource
     || latestHubStatsGeneration !== hubModeGeneration
@@ -2986,6 +3016,7 @@ const diagnosticSnapshotBuilder = createDiagnosticSnapshotBuilder({
   getExternalAgentActive: isExternalAgentActive,
   getDeviceRuntime: () => deviceRuntimeHandle,
   getEmbeddedHub: () => embeddedHub,
+  getIcloudSync: () => icloudRuntimeHandle?.getStatus?.() || null,
   getStreamState: () => ({ connected: streamConnected, failure: streamFailure }),
   getLatestHubStats: () => latestHubStats,
   getLatestHubStatsReceivedAt: () => latestHubStatsReceivedAt,
@@ -3116,7 +3147,7 @@ function bestEffortTrackedUsageRefresh(clientId, options = {}) {
   const tracked = trackedClientSet(clientsCsvForSetting(settings?.clients));
   if (
     !tracked.has(client)
-    || !canRefreshUsageRuntime(mode, isExternalAgentActive)
+    || (settings?.hubMode !== 'icloud' && !canRefreshUsageRuntime(mode, isExternalAgentActive))
   ) return;
   try {
     void refreshUsageClient(client, options).catch((error) => {
@@ -3134,7 +3165,7 @@ function drainPendingUsageClientRefreshes(runtime) {
     (error) => {
       console.log(`[usage-runtime] pending client refresh failed: ${error.message}`);
     },
-    { enabled: canRefreshUsageRuntime(mode, isExternalAgentActive) }
+    { enabled: settings?.hubMode === 'icloud' || canRefreshUsageRuntime(mode, isExternalAgentActive) }
   );
 }
 
@@ -3176,7 +3207,16 @@ function getHubInfo() {
     listening: Boolean(embeddedHub),
     listeningPort: embeddedHub ? embeddedHub.port : null,
     error: embeddedHubError,
-    lanAddresses: lanIpv4Addresses()
+    lanAddresses: lanIpv4Addresses(),
+    icloud: icloudRuntimeHandle?.getStatus?.() || {
+      state: process.platform === 'darwin' ? 'waiting' : 'unavailable',
+      availability: process.platform === 'darwin' ? 'unknown' : 'unavailable',
+      supported: process.platform === 'darwin',
+      root: '[redacted]/Token Monitor/sync-v1',
+      deviceCount: 0,
+      watcher: 'inactive',
+      reconciliation: 'idle'
+    }
   };
 }
 
@@ -3230,7 +3270,7 @@ function isExternalAgentActive() {
 function ownsUsageRuntime() {
   return Boolean(
     deviceRuntimeHandle
-    && canRefreshUsageRuntime(mode, isExternalAgentActive)
+    && (settings?.hubMode === 'icloud' || canRefreshUsageRuntime(mode, isExternalAgentActive))
   );
 }
 
@@ -3243,6 +3283,48 @@ async function deleteDeviceFromHub(deviceId) {
     headers: secret ? { authorization: `Bearer ${secret}` } : {}
   });
   if (!response.ok && response.status !== 404) throw new Error(`DELETE ${response.status}`);
+}
+
+function normalizeDeviceIdForDeletion(deviceId) {
+  const id = String(deviceId ?? '').trim();
+  if (!id) throw Object.assign(new Error('invalid_device_id'), { code: 'invalid_device_id' });
+  return id;
+}
+
+async function deleteDeviceFromCurrentSync(deviceId) {
+  const hubMode = settings?.hubMode;
+  if (hubMode !== 'icloud' && hubMode !== 'client' && hubMode !== 'host') {
+    throw Object.assign(new Error('Device deletion is only available in shared sync mode'), { code: 'not_shared' });
+  }
+  const hubIdentity = currentHubIdentity();
+  const runtime = hubMode === 'icloud' ? icloudRuntimeHandle : null;
+  if (hubMode === 'icloud' && !runtime) {
+    throw Object.assign(new Error('iCloud sync is unavailable'), { code: 'icloud_unavailable' });
+  }
+
+  const stats = await fetchStats();
+  if (
+    settings?.hubMode !== hubMode
+    || currentHubIdentity() !== hubIdentity
+    || (hubMode === 'icloud' && icloudRuntimeHandle !== runtime)
+  ) {
+    throw Object.assign(new Error('hub changed'), { code: 'hub_changed' });
+  }
+  const localDeviceId = String(settings?.deviceId || defaultDeviceId()).trim();
+  if (deviceId === localDeviceId) {
+    throw Object.assign(new Error('local_device_delete_not_allowed'), { code: 'local_device_delete_not_allowed' });
+  }
+  const devices = Array.isArray(stats?.devices) ? stats.devices : [];
+  const target = devices.find((device) => device?.deviceId === deviceId);
+  if (!target) {
+    throw Object.assign(new Error('device_not_found'), { code: 'device_not_found' });
+  }
+  if (hubMode === 'icloud' && target.stale !== true) {
+    throw Object.assign(new Error('device_not_stale'), { code: 'device_not_stale' });
+  }
+
+  if (hubMode === 'icloud') return runtime.deleteDevice(deviceId);
+  return deleteDeviceFromHub(deviceId);
 }
 
 async function postToHub(summary) {
@@ -3313,7 +3395,7 @@ let lastSubscriptionCatchUp = { hub: '', version: '', at: 0 };
 const SUBSCRIPTION_RETRY_MS = 60000;
 
 function subscriptionsAreShared() {
-  return settings?.hubMode === 'client' || settings?.hubMode === 'host';
+  return settings?.hubMode === 'client' || settings?.hubMode === 'host' || settings?.hubMode === 'icloud';
 }
 
 // The document in hand, but only when it is the one this hub answered with.
@@ -3349,6 +3431,7 @@ function cacheSharedSubscriptions(doc, hub) {
   // and comparing timestamps alone left the marker pointing at the previous hub,
   // so an offline restart came back showing its records.
   const changed = (hubSubscriptions?.updatedAt || '') !== (doc.updatedAt || '')
+    || (hubSubscriptions?.revisionToken || '') !== (doc.revisionToken || '')
     || String(settings.subscriptionsCacheHub || '') !== hub;
   hubSubscriptions = doc;
   hubSubscriptionsHub = hub;
@@ -3533,7 +3616,15 @@ function rememberOrphanedSubscriptions(local, doc) {
 // Trimmed the same way subscriptionsEndpoint() trims it, so a trailing slash the
 // user typed does not read as a different hub and strand them.
 function currentHubIdentity() {
+  if (typeof settings !== 'undefined' && settings?.hubMode === 'icloud') return 'icloud';
   return String(effectiveHubConfig().url || '').replace(/\/$/, '');
+}
+
+function subscriptionDocumentVersion(doc) {
+  if (!doc) return '';
+  return settings?.hubMode === 'icloud'
+    ? String(doc.revisionToken || '')
+    : String(doc.updatedAt || '');
 }
 
 function orphanedSubscriptions() {
@@ -3571,10 +3662,37 @@ async function adoptOrphanedSubscriptions() {
     // this one as though they had been entered here; with none in hand the write
     // goes out claiming no base, which the hub answers with 409 rather than an
     // overwrite.
-    const held = subscriptionsDocumentFor(hub);
-    const merged = new Map((held?.subscriptions || []).map((entry) => [entry.id, entry]));
-    for (const orphan of orphans) merged.set(orphan.id, orphan);
-    await writeSharedSubscriptionsNow([...merged.values()], hub, held?.updatedAt || '');
+    if (settings.hubMode === 'icloud') {
+      const runtime = icloudRuntimeHandle;
+      if (!runtime) throw Object.assign(new Error('iCloud sync is unavailable'), { code: 'icloud_unavailable' });
+      const held = runtime.getSubscriptions?.();
+      const merged = new Map((held?.subscriptions || []).map((entry) => [entry.id, entry]));
+      for (const orphan of orphans) merged.set(orphan.id, orphan);
+      const result = await runtime.saveSubscriptions([...merged.values()], held?.revisionToken || '');
+      if (!subscriptionOpIsCurrent(hub) || icloudRuntimeHandle !== runtime) throw hubChangedError();
+      if (result?.winner) {
+        cacheSharedSubscriptions({
+          version: 1,
+          updatedAt: result.winner.updatedAt || '',
+          subscriptions: result.winner.subscriptions || [],
+          revisionToken: result.revisionToken || ''
+        }, hub);
+      }
+      // iCloud may discover a competing writer's snapshot after publishing ours.
+      // Unlike the Hub's accepted write, that result does not prove adoption.
+      const winningRecords = new Map((result?.winner?.subscriptions || []).map((entry) => [entry.id, entry]));
+      if (result?.errors?.length || !result?.winner || orphans.some((entry) =>
+        JSON.stringify(winningRecords.get(entry.id)) !== JSON.stringify(entry)
+      )) {
+        const code = result?.errors?.length || !result?.winner ? 'icloud_adoption_unconfirmed' : 'stale_write';
+        throw Object.assign(new Error(code), { code });
+      }
+    } else {
+      const held = subscriptionsDocumentFor(hub);
+      const merged = new Map((held?.subscriptions || []).map((entry) => [entry.id, entry]));
+      for (const orphan of orphans) merged.set(orphan.id, orphan);
+      await writeSharedSubscriptionsNow([...merged.values()], hub, held?.updatedAt || '');
+    }
     // Cleared in the same turn: between the write landing and this, the records
     // are on the hub and still marked as waiting for a decision here.
     settings.subscriptionsOrphaned = { hubUrl: '', records: [] };
@@ -3591,6 +3709,11 @@ function subscriptionWriteFailureCode(error) {
   if (error?.code === 'rejected') return 'hub_rejected';
   if (error?.code === 'write_failed') return 'write_failed';
   if (error?.code === 'hub_changed') return 'hub_changed';
+  if (typeof settings !== 'undefined' && settings?.hubMode === 'icloud') {
+    return error?.code === 'icloud_unavailable' || error?.code === 'icloud_stopped' || error?.code === 'icloud_adoption_unconfirmed'
+      ? error.code
+      : 'icloud_write_failed';
+  }
   return 'hub_unreachable';
 }
 
@@ -3620,6 +3743,38 @@ async function refreshSharedSubscriptionsNow({ seedFromLocal = false } = {}) {
   if (hubSubscriptions && hubSubscriptionsHub !== hub) {
     hubSubscriptions = null;
     hubSubscriptionsHub = '';
+  }
+
+  if (settings.hubMode === 'icloud') {
+    const runtime = icloudRuntimeHandle;
+    if (!runtime) return false;
+    await runtime.reconcile('subscription-refresh');
+    if (!subscriptionOpIsCurrent(hub) || icloudRuntimeHandle !== runtime) return false;
+    const local = settings.subscriptionsCacheHub ? [] : (settings.subscriptions || []);
+    let document = runtime.getSubscriptions?.() || null;
+    if (!document && seedFromLocal && local.length > 0) {
+      const written = await runtime.saveSubscriptions(local, '');
+      if (!subscriptionOpIsCurrent(hub) || icloudRuntimeHandle !== runtime) return false;
+      document = written?.winner
+        ? { ...written.winner, revisionToken: written.revisionToken || '' }
+        : null;
+    }
+    // No winner means no valid snapshot exists. Missing, malformed, or
+    // temporarily unavailable files are not an authoritative empty list; only
+    // a valid winner whose subscriptions array is [] can clear the cache.
+    if (!document) return false;
+    const normalizedDocument = {
+      version: 1,
+      updatedAt: document.updatedAt || '',
+      subscriptions: document.subscriptions || [],
+      revisionToken: document.revisionToken || ''
+    };
+    const orphansChanged = seedFromLocal && local.length > 0
+      ? rememberOrphanedSubscriptions(local, normalizedDocument)
+      : false;
+    const changed = cacheSharedSubscriptions(normalizedDocument, hub);
+    if (orphansChanged && !changed) persistSubscriptionState();
+    return changed || orphansChanged;
   }
 
   try {
@@ -3773,6 +3928,25 @@ async function saveSubscriptions(list, base) {
   // version cannot answer for it: two hubs that have never been written to both
   // report no version, so an edit made against one would pass a version check
   // against the other and be written into a list it was never meant for.
+  if (settings.hubMode === 'icloud') {
+    return queueSubscriptionOp(async (hub) => {
+      if (!subscriptionOpIsCurrent(hub) || settings.hubMode !== 'icloud') throw hubChangedError();
+      const runtime = icloudRuntimeHandle;
+      if (!runtime) throw Object.assign(new Error('iCloud sync is unavailable'), { code: 'icloud_unavailable' });
+      const result = await runtime.saveSubscriptions(list, String(base?.updatedAt || ''));
+      if (!subscriptionOpIsCurrent(hub) || icloudRuntimeHandle !== runtime) throw hubChangedError();
+      if (result?.winner) {
+        cacheSharedSubscriptions({
+          version: 1,
+          updatedAt: result.winner.updatedAt || '',
+          subscriptions: result.winner.subscriptions || [],
+          revisionToken: result.revisionToken || ''
+        }, hub);
+      }
+      pushSettingsToRenderer();
+      return settingsForRenderer();
+    });
+  }
   await writeSharedSubscriptions(list, String(base?.updatedAt || ''));
   return settingsForRenderer();
 }
@@ -3784,6 +3958,194 @@ function stopSyncCollector(options = {}) {
   usageRuntimeReconciler.setActiveKey(null);
   if (deviceRuntimeHandle) { try { deviceRuntimeHandle.stop(options); } catch (_) {} }
   deviceRuntimeHandle = null;
+}
+
+async function stopIcloudRuntime() {
+  // The hub-mode generation changes for mode switches, but a sink-only restart
+  // (for example, changing the upload cadence) keeps that generation. This
+  // separate epoch fences callbacks from the replaced filesystem runtime too.
+  icloudRuntimeEpoch += 1;
+  const oldRuntime = icloudRuntimeHandle;
+  icloudRuntimeHandle = null;
+  if (!oldRuntime) return icloudRuntimeStopPromise;
+  icloudRuntimeStopPromise = icloudRuntimeStopPromise.then(async () => {
+    try {
+      await oldRuntime.stop();
+    } catch (error) {
+      // A failed watcher close or store cleanup must not prevent the next mode
+      // from starting. The runtime has fenced its callbacks; keep the error
+      // visible and let the replacement proceed.
+      console.log(`[icloud] runtime teardown failed: ${error?.message || error}`);
+    }
+  });
+  return icloudRuntimeStopPromise;
+}
+
+function retainIcloudDeviceIdentity(previous, next) {
+  const retired = new Set(previous.icloudRetiredDeviceIds || []);
+  if (previous.hubMode === 'icloud'
+    && (previous.deviceId !== next.deviceId || next.hubMode !== 'icloud')) {
+    retired.add(previous.deviceId);
+  }
+  next.icloudRetiredDeviceIds = [...retired].filter(Boolean);
+}
+
+// iCloud mode keeps the normal Electron collector and limits runtime, but its
+// sink is a local, atomic file write rather than an HTTP upload.  The runtime
+// below owns reconciliation and aggregation, so a temporarily absent iCloud
+// Drive never turns a last-good multi-device snapshot into zeroes.
+async function startIcloudCollector() {
+  await stopIcloudRuntime();
+  stopSyncCollector();
+  if (process.platform !== 'darwin') return;
+  const generation = hubModeGeneration;
+  const runtimeEpoch = ++icloudRuntimeEpoch;
+  const icloudRequestIsCurrent = () => hubModeRequestIsCurrent(
+    generation,
+    'icloud',
+    currentHubStatsIdentity('icloud')
+  ) && runtimeEpoch === icloudRuntimeEpoch;
+  const widgetProducerOwner = captureMacWidgetProducerOwner();
+  let lastIcloudStatusState = '';
+  // The writer owns subscription and deletion snapshots across Device ID edits.
+  // Persist its identity before publishing anything under it.
+  if (!settings.icloudWriterId) {
+    settings.icloudWriterId = settings.deviceId;
+    if (!saveSettings()) throw new Error('Could not persist iCloud writer identity');
+  }
+  const store = createIcloudSyncStore({
+    platform: process.platform,
+    home: app.getPath('home'),
+    deviceId: settings.deviceId,
+    writerId: settings.icloudWriterId,
+    revisionLedgerPath: path.join(app.getPath('userData'), 'icloud-revisions.json'),
+    staleAfterMs: 10 * 60 * 1000
+  });
+  const runtime = createIcloudSyncRuntime({
+    store,
+    deviceId: settings.deviceId,
+    retiredDeviceIds: settings.icloudRetiredDeviceIds || [],
+    historyEnabled: () => settings?.historyEnabled !== false,
+    staleAfterMs: 10 * 60 * 1000,
+    onStats: (stats) => {
+      if (!icloudRequestIsCurrent()) return;
+      const identity = currentHubStatsIdentity('icloud');
+      setLatestHubStatsCache(stats, 'icloud', generation, identity);
+      updateDiscordRpcDisplay(stats);
+      sendPush({ event: 'stats', data: { type: 'stats', reason: 'local', stats, at: new Date().toISOString() } }, { widgetProducerOwner });
+    },
+    onStatus: (status) => {
+      if (!icloudRequestIsCurrent()) return;
+      const connected = status.state === 'available';
+      sendStatus(connected, {
+        provider: 'icloud',
+        reason: status.reason || (connected ? 'icloud-ready' : 'icloud-waiting'),
+        icloud: status
+      });
+      const stateChanged = status.state !== lastIcloudStatusState;
+      lastIcloudStatusState = status.state;
+      if (connected && stateChanged && status.lastSuccessfulReconciliation && !subscriptionsDocumentFor('icloud')) {
+        void reconcileSharedSubscriptions();
+      }
+      sendHubPush({ type: 'icloud', info: getHubInfo() });
+    },
+    onSubscriptions: (document) => {
+      if (!icloudRequestIsCurrent()) return;
+      // On the first switch from Local, settings.subscriptions is still this
+      // device's owned list. The runtime may finish its initial discovery before
+      // the mode queue reaches reconcileSharedSubscriptions(seedFromLocal), so
+      // do not let that callback turn a remote winner (or an authoritative empty
+      // directory) into a cache and erase the list before the adoption decision.
+      // Once the reconcile has cached the iCloud document, later callbacks are
+      // ordinary cross-device updates and must be applied normally.
+      const localOwnedSubscriptions = !settings.subscriptionsCacheHub
+        && Array.isArray(settings.subscriptions)
+        && settings.subscriptions.length > 0
+        && !subscriptionsDocumentFor('icloud');
+      if (localOwnedSubscriptions) return;
+      if (!document) {
+        const changed = cacheSharedSubscriptions({
+          version: 1,
+          updatedAt: '',
+          subscriptions: [],
+          revisionToken: ''
+        }, 'icloud');
+        if (changed) pushSettingsToRenderer();
+        return;
+      }
+      const changed = cacheSharedSubscriptions({
+        version: 1,
+        updatedAt: document.updatedAt || '',
+        subscriptions: document.subscriptions || [],
+        revisionToken: document.revisionToken || ''
+      }, 'icloud');
+      if (changed) pushSettingsToRenderer();
+    },
+    onError: ({ category }) => {
+      if (icloudRequestIsCurrent()) {
+        recordDiagnosticEvent({ subsystem: 'icloud', code: category || 'icloud-sync-error' });
+      }
+    }
+  });
+  icloudRuntimeHandle = runtime;
+  let createdDeviceRuntime = null;
+  try {
+    mode = 'sync';
+    sendStatus(false, { provider: 'icloud', reason: 'icloud-initializing', icloud: runtime.getStatus() });
+    await runtime.start();
+    if (!icloudRequestIsCurrent()) {
+      await runtime.stop();
+      if (icloudRuntimeHandle === runtime) icloudRuntimeHandle = null;
+      return;
+    }
+    const sink = {
+      async enqueue(summary) {
+        seedInitialLimitProviders(summary);
+        // The headless agent has no iCloud sink. The widget still publishes
+        // this device's record while the agent owns the local history archive.
+        const visibleSummary = {
+          ...summary,
+          syncUploadIntervalMs: 0
+        };
+        lastCollectedDevice = { ...visibleSummary, receivedAt: new Date().toISOString() };
+        const retiredDeviceIds = settings.icloudRetiredDeviceIds || [];
+        const written = await runtime.writeDevice(visibleSummary, { retiredDeviceIds });
+        if (written && icloudRequestIsCurrent() && settings.deviceId === visibleSummary.deviceId) {
+          settings.icloudRetiredDeviceIds = (settings.icloudRetiredDeviceIds || [])
+            .filter((id) => !retiredDeviceIds.includes(id));
+          if (retiredDeviceIds.length) saveSettings();
+        }
+      },
+      flush: () => runtime.flush(),
+      stop: () => runtime.stop()
+    };
+    const usageOptions = electronUsageConfig('icloud-collector');
+    createdDeviceRuntime = createDeviceRuntime({
+      envelope: electronDeviceEnvelope(),
+      initialLimits: lastCollectedDevice?.limits,
+      limitsOptions: electronLimitsConfig(),
+      transformUsage: usageTransform.transform,
+      usageOptions,
+      sink,
+      onDiagnosticEvent: recordDiagnosticEvent,
+      onError: (error, reason) => console.log(`[icloud-collector] ${reason}: ${error.message}`)
+    }, {
+      createUsageRuntime: createElectronUsageRuntime,
+      limitsDeps: electronLimitsDeps()
+    });
+    deviceRuntimeHandle = createdDeviceRuntime;
+    usageRuntimeReconciler.setActiveKey(usageConfigFingerprint(usageOptions));
+    drainPendingRuntimeActions(createdDeviceRuntime);
+  } catch (error) {
+    if (icloudRuntimeHandle === runtime) {
+      if (createdDeviceRuntime && deviceRuntimeHandle === createdDeviceRuntime) stopSyncCollector();
+      icloudRuntimeHandle = null;
+    }
+    try { await runtime.stop(); } catch (stopError) {
+      console.log(`[icloud] failed-start teardown failed: ${stopError?.message || stopError}`);
+    }
+    throw error;
+  }
 }
 
 // Well inside the 3–5 s update promise: a watch tick already waits out its own
@@ -4011,6 +4373,7 @@ function historyResolverOptions() {
     historyEnabled: settings?.historyEnabled !== false,
     hubMode: settings?.hubMode,
     hubUrl,
+    icloudSync: settings?.hubMode === 'icloud' ? icloudRuntimeHandle : null,
     // In sync/host mode the headless agent owns this machine's producer while its
     // PID is live. Do not let the widget's last pre-handoff snapshot compete with
     // the newer Hub record; local mode always owns its collector by contract.
@@ -4193,6 +4556,7 @@ function sendPush(payload, options = {}) {
     injectLocalDeviceStatus(payload.data.stats);
     latestStats = payload.data.stats;
     const visibleStats = electronPresentationStats(latestStats);
+    migrateCodexAdditionalLimits(visibleStats);
     rendererPayload = {
       ...payload,
       data: { ...payload.data, stats: rendererSnapshots.stamp(latestStats, rendererStats(visibleStats)) }
@@ -4336,7 +4700,7 @@ function sendStatus(connected, extra) {
   const previous = streamConnected;
   streamConnected = Boolean(connected);
   streamFailure = streamConnected ? null : ((extra && extra.reason) ? { reason: extra.reason, detail: extra.detail ?? null } : streamFailure);
-  if (mode === 'sync') {
+  if (mode === 'sync' && settings?.hubMode !== 'icloud') {
     if (streamConnected && !previous) {
       recordDiagnosticEvent({ subsystem: 'stream', code: 'stream-reconnected' });
     } else if (!streamConnected && (previous || extra?.reason)) {
@@ -4679,6 +5043,8 @@ function settingsForRenderer() {
     expose: ['hubHostSecret', 'secret']
   });
   const rendererSettings = { ...settings };
+  delete rendererSettings.icloudRetiredDeviceIds;
+  delete rendererSettings.icloudWriterId;
   for (const key of rendererOmittedAccountKeys()) delete rendererSettings[key];
   return {
     ...rendererSettings,
@@ -4693,7 +5059,7 @@ function settingsForRenderer() {
     // this process holds by the time the write goes out — and which hub issued
     // that version, because it does not mean anything without one.
     subscriptionsHub: currentHubIdentity(),
-    subscriptionsUpdatedAt: subscriptionsDocumentFor(currentHubIdentity())?.updatedAt || '',
+    subscriptionsUpdatedAt: subscriptionDocumentVersion(subscriptionsDocumentFor(currentHubIdentity())),
     subscriptionsOrphaned: pendingOrphanedSubscriptions(),
     ...accountFieldProjection(settings, process.env),
     codexManagedAccounts: codexAccountsForRenderer(),
@@ -4816,6 +5182,7 @@ function edgeDockAppearance(rendererSettings = settingsForRenderer()) {
     // every preference that view reads has to reach this renderer as well —
     // otherwise the card silently renders a different page's answer.
     showCodexAdditionalLimits: source.showCodexAdditionalLimits,
+    limitProviderHiddenItems: source.limitProviderHiddenItems,
     showLimitSource: source.showLimitSource,
     codexResetForecastEnabled: source.codexResetForecastEnabled,
     claudePrepaidBalanceEnabled: source.claudePrepaidBalanceEnabled,
@@ -4862,7 +5229,7 @@ function edgeDockLiveRateSample(visibleStats) {
     return null;
   }
   const hubMode = settings?.hubMode;
-  const syncMode = hubMode === 'client' || hubMode === 'host';
+  const syncMode = tokenRateApi.isSharedSyncMode(hubMode);
   const scope = syncMode && settings?.liveTokenRateScope !== 'device' ? 'all' : 'device';
   const selection = tokenRateApi.selectLiveTokenRatePeriods(visibleStats, settings?.deviceId, hubMode, scope);
   const context = [mode, hubMode || '', settings?.hubUrl || '', settings?.deviceId || '', scope, selection.source].join('|');
@@ -4997,6 +5364,7 @@ function edgeDockCellsFor(visibleStats) {
     // dock window is handed cells and nothing else, so both ride the cell.
     syncActive: syncProvenanceActive(),
     items: settings?.edgeDockItems,
+    showCodexAdditionalLimits: settings?.showCodexAdditionalLimits,
     codexManagedAccounts: codexAccountsForRenderer(),
     activeCodexAccountId: codexPresentationPendingAccountId || codexPresentationActiveAccountId,
     limitsEnabled: settings?.limitsEnabled !== false,
@@ -5104,6 +5472,7 @@ function ensureEdgeDockController() {
     },
     primaryButtonDown: () => primaryButtonDown(process.platform),
     performHaptic: (pattern, performanceTime) => performMacHaptic({ pattern, performanceTime }),
+    isFullScreen: createFullScreenProbe({ platform: process.platform, screen, logger: (message) => console.log(message) }),
     // The dock card's Switch button runs the same swap the Limits view does,
     // then repaints from the refreshed records. It is the dock's only write.
     onSwitchCodexAccount: (accountId) => switchCodexAccountFromEdgeDock(accountId),
@@ -5153,6 +5522,7 @@ function syncEdgeDock(rendererSettings) {
 function refreshLimitStatsPresentation() {
   if (!latestStats) return;
   const visibleStats = electronPresentationStats(latestStats);
+  migrateCodexAdditionalLimits(visibleStats);
   scheduleMacWidgetSnapshot(visibleStats, captureMacWidgetProducerOwner());
   updateEdgeDockCells(visibleStats);
   updateTrayDisplay();
@@ -5252,7 +5622,7 @@ function setTrayContentFromMenu(value) {
 
 function setEdgeDockFromMenu(patch = {}) {
   if (patch.edgeDockEnabled !== undefined) settings.edgeDockEnabled = parseBoolean(patch.edgeDockEnabled, false);
-  if (patch.edgeDockMode !== undefined) settings.edgeDockMode = patch.edgeDockMode === 'always' ? 'always' : 'autoHide';
+  if (patch.edgeDockMode !== undefined) settings.edgeDockMode = normalizeEdgeDockMode(patch.edgeDockMode);
   if (patch.edgeDockSide !== undefined) settings.edgeDockSide = normalizeEdgeDockSide(patch.edgeDockSide);
   saveSettings();
   // Also re-syncs the dock itself (pushSettingsToRenderer → syncEdgeDock).
@@ -5485,8 +5855,10 @@ function startMode() {
   hubModeGeneration += 1;
   advanceMacWidgetProducerAndSourceEpoch();
   clearLatestHubStatsCache();
+  const icloudStop = stopIcloudRuntime();
   // Tear down collectors synchronously so they can't double-run while the
-  // async reconciliation below is queued.
+  // async reconciliation below is queued. iCloud's filesystem teardown is
+  // awaited by the mode lane before any replacement runtime is created.
   stopLocalCollector();
   stopStatsStream();
   stopHostStats();
@@ -5497,6 +5869,10 @@ function startMode() {
   // than racing — otherwise an in-flight start could finish with the old
   // port/secret after the UI already advertises the new ones.
   modeQueue = modeQueue.then(async () => {
+    await icloudStop;
+    // A prior queued mode may have created an iCloud runtime after this call's
+    // initial stop. Drain that runtime as well before applying the latest mode.
+    await stopIcloudRuntime();
     if (settings.hubMode === 'host') {
       await stopEmbeddedHub();
       const handle = await startEmbeddedHub();
@@ -5517,6 +5893,11 @@ function startMode() {
       return;
     }
     await stopEmbeddedHub();
+    if (settings.hubMode === 'icloud') {
+      await startIcloudCollector();
+      if (settings.hubMode === 'icloud') void reconcileSharedSubscriptions();
+      return;
+    }
     if (effectiveHubConfig().url) {
       startStatsStream({ resetSnapshot: true });
       startSyncCollector();
@@ -5560,6 +5941,12 @@ function restartDeviceRuntimeForMode() {
     startHostCollector();
     return;
   }
+  if (settings.hubMode === 'icloud') {
+    return startIcloudCollector().catch((error) => {
+      console.log(`[icloud] collector restart failed: ${error?.message || error}`);
+      recordDiagnosticEvent({ subsystem: 'icloud', code: 'icloud-start-failed' });
+    });
+  }
   if (effectiveHubConfig().url) startSyncCollector();
   else startLocalCollector();
 }
@@ -5567,7 +5954,9 @@ function restartDeviceRuntimeForMode() {
 function usageCollectorNameForMode() {
   return mode === 'local'
     ? 'collector'
-    : (settings.hubMode === 'host' && embeddedHub ? 'host-collector' : 'sync-collector');
+    : (settings.hubMode === 'host' && embeddedHub
+      ? 'host-collector'
+      : settings.hubMode === 'icloud' ? 'icloud-collector' : 'sync-collector');
 }
 
 function usageConfigForMode() {
@@ -5601,6 +5990,7 @@ function stopAll() {
   stopStatsStream();
   stopHostStats();
   stopSyncCollector({ skipCloseWatchers: true });
+  stopIcloudRuntime();
   // A collector on the usage worker stops by message, which nothing guarantees
   // the worker handles before the exit below; its tokscale subprocesses would
   // outlive us.
@@ -5737,7 +6127,7 @@ async function writeExportTo(dir, periods, options = {}) {
 
 async function fetchStats(options = {}) {
   const requestGeneration = hubModeGeneration;
-  const requestHubIdentity = currentHubStatsIdentity('client');
+  const requestHubIdentity = currentHubStatsIdentity(settings?.hubMode === 'icloud' ? 'icloud' : 'client');
   const force = Boolean(options?.force);
   // forceHistory and forceSelfSync stay independent of `force` on purpose: tool
   // settings, account sign-ins and limits actions all refresh with { force: true },
@@ -5757,6 +6147,12 @@ async function fetchStats(options = {}) {
   }
   if (settings.hubMode === 'host' && embeddedHub) {
     return injectLocalDeviceStatus(embeddedHub.hub.getStats());
+  }
+  if (settings.hubMode === 'icloud') {
+    const stats = icloudRuntimeHandle?.getStats?.()
+      || currentHubStatsCache()
+      || withHistoryPreview(aggregateDevices([], 0), []);
+    return injectLocalDeviceStatus(stats);
   }
   const { url: hubUrl, secret } = effectiveHubConfig();
   if (!hubUrl) return withHistoryPreview(aggregateDevices([], 0), []);
@@ -6864,6 +7260,7 @@ app.whenReady().then(() => {
     delete normalizedPatch.subscriptions;
     delete normalizedPatch.subscriptionsOrphaned;
     delete normalizedPatch.subscriptionsCacheHub;
+    delete normalizedPatch.icloudWriterId;
     // Derived for the renderer from the hub document, not settings. Persisting a
     // copy would leave a key on disk that describes a hub as of whenever a form
     // was last saved, waiting to be mistaken for the real thing.
@@ -6886,7 +7283,9 @@ app.whenReady().then(() => {
     settings = normalizeWindowBehaviorSettings({
       ...settings,
       ...normalizedPatch,
-      hubMode: patch.hubMode !== undefined ? normalizeHubMode(patch.hubMode, settings.hubMode) : settings.hubMode,
+      hubMode: patch.hubMode !== undefined
+        ? normalizeHubMode(patch.hubMode, settings.hubMode, process.platform)
+        : normalizeHubMode(settings.hubMode, 'local', process.platform),
       hubHostPort: patch.hubHostPort !== undefined ? normalizeHubPort(patch.hubHostPort, settings.hubHostPort) : settings.hubHostPort,
       hubHostSecret: patch.hubHostSecret !== undefined ? String(patch.hubHostSecret) : settings.hubHostSecret,
       deviceId: (patch.deviceId !== undefined ? String(patch.deviceId).trim() : settings.deviceId) || defaultDeviceId(),
@@ -6921,7 +7320,7 @@ app.whenReady().then(() => {
       edgeDockSide: normalizeEdgeDockSide(patch.edgeDockSide ?? settings.edgeDockSide),
       edgeDockOffset: normalizeEdgeDockOffset(patch.edgeDockOffset ?? settings.edgeDockOffset),
       edgeDockDisplayId: normalizeEdgeDockDisplayId(patch.edgeDockDisplayId ?? settings.edgeDockDisplayId),
-      edgeDockMode: (patch.edgeDockMode ?? settings.edgeDockMode) === 'always' ? 'always' : 'autoHide',
+      edgeDockMode: normalizeEdgeDockMode(patch.edgeDockMode ?? settings.edgeDockMode),
       edgeDockHaptic: parseBoolean(patch.edgeDockHaptic ?? settings.edgeDockHaptic, true),
       edgeDockWarnColors: parseBoolean(patch.edgeDockWarnColors ?? settings.edgeDockWarnColors, false),
       edgeDockMacBackdrop: normalizeEdgeDockBackdropMode(patch.edgeDockMacBackdrop ?? settings.edgeDockMacBackdrop),
@@ -6939,6 +7338,7 @@ app.whenReady().then(() => {
         { currencyApi: { normalizeCurrency } }
       ),
       subscriptionsCacheHub: String(settings.subscriptionsCacheHub || ''),
+      icloudWriterId: String(settings.icloudWriterId || ''),
       subscriptionsOrphaned: {
         hubUrl: orphanedSubscriptions().hubUrl,
         records: subscriptionDisplay.normalizeSubscriptions(
@@ -6959,6 +7359,7 @@ app.whenReady().then(() => {
       showHomeLimitProviderNames: parseBoolean(patch.showHomeLimitProviderNames ?? settings.showHomeLimitProviderNames, false),
       homeLimitProviderOrder: patch.homeLimitProviderOrder !== undefined ? migrateHomeLimitProviderOrder(patch.homeLimitProviderOrder) : (settings.homeLimitProviderOrder || ''),
       hiddenHomeLimitProviders: patch.hiddenHomeLimitProviders !== undefined ? normalizeHiddenLimitProviders(patch.hiddenHomeLimitProviders) : normalizeHiddenLimitProviders(settings.hiddenHomeLimitProviders),
+      limitProviderHiddenItems: normalizeLimitProviderHiddenItems(patch.limitProviderHiddenItems ?? settings.limitProviderHiddenItems),
       homeLimitAccountCount: normalizeHomeLimitAccountCount(patch.homeLimitAccountCount ?? settings.homeLimitAccountCount),
       periodMonthMode: normalizePeriodMonthMode(patch.periodMonthMode ?? settings.periodMonthMode),
       modelRankingMetric: normalizeRankingMetric(patch.modelRankingMetric ?? settings.modelRankingMetric),
@@ -7008,6 +7409,7 @@ app.whenReady().then(() => {
         ? normalizeCustomPricingSetting(patch.customModelPricing)
         : normalizeCustomPricingSetting(settings.customModelPricing)
     }, windowBehaviorSelection(normalizedPatch));
+    retainIcloudDeviceIdentity(previousSettingsState, settings);
     settings.archivedClientUsage = normalizeArchivedClientUsage(settings.archivedClientUsage);
     if (settings.clients !== previousClients) updateArchivedClientUsage(previousClients, settings.clients);
     delete settings.edgeDrawerEnabled;
@@ -7257,6 +7659,14 @@ app.whenReady().then(() => {
     maybeAdoptSharedSubscriptionRevision(stats);
     return rendererSnapshots.stamp(stats, rendererStats(electronPresentationStats(stats)));
   });
+  ipcMain.handle('devices:delete', async (_event, deviceId) => {
+    try {
+      await deleteDeviceFromCurrentSync(normalizeDeviceIdForDeletion(deviceId));
+      return { ok: true };
+    } catch (error) {
+      throw new Error(error.code || error.message, { cause: error });
+    }
+  });
   ipcMain.handle('stats:allTimeSessions', (_event, snapshotId) => rendererAllTimeSessions(rendererSnapshots.get(snapshotId)));
   ipcMain.handle('export:now', async () => {
     const result = await dialog.showOpenDialog({
@@ -7452,6 +7862,7 @@ app.whenReady().then(() => {
     }
   });
   ipcMain.handle('limits:saveCredential', (_event, providerId, values) => credentialCommands.saveCredential(providerId, values));
+  ipcMain.handle('limits:listOrganizationChoices', (_event, providerId) => credentialCommands.listOrganizationChoices(providerId));
   ipcMain.handle('limits:clearCredential', (_event, providerId) => credentialCommands.clearCredential(providerId));
   ipcMain.handle('opencode:saveCookie', async (_event, raw) => {
     const cookie = opencodeWeb.sanitizeCookieHeader(raw);
@@ -8352,14 +8763,21 @@ app.whenReady().then(() => {
   });
   ipcMain.on('dashboard:minimize', (event) => { BrowserWindow.fromWebContents(event.sender)?.minimize(); });
   ipcMain.on('dashboard:close', (event) => { BrowserWindow.fromWebContents(event.sender)?.close(); });
-  // The window this builds is about to be on screen, so the policy is resolved
-  // for a visible window exactly as focusExistingWindow() does. Without it this
-  // was the one path reaching applyMacSpaceBehavior() with a process type
-  // nothing had decided, which skipTransformProcessType now preserves.
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().some((win) => !edgeDockController?.owns(win))) return;
-    applyMacActivationPolicy({ mainWindowVisible: true });
-    createWindow();
+    const action = activateWindowAction({
+      mainWindow,
+      windows: BrowserWindow.getAllWindows(),
+      isDockOwned: (win) => Boolean(edgeDockController?.owns(win))
+    });
+    if (action === 'focusWindow') focusExistingWindow();
+    else if (action === 'createWindow') {
+      // The window this builds is about to be on screen, so the policy is resolved
+      // for a visible window exactly as focusExistingWindow() does. Without it this
+      // was the one path reaching applyMacSpaceBehavior() with a process type
+      // nothing had decided, which skipTransformProcessType now preserves.
+      applyMacActivationPolicy({ mainWindowVisible: true });
+      createWindow();
+    }
   });
   maybeRunBackgroundUpdateCheck();
   startAppUpdateBackgroundChecks();

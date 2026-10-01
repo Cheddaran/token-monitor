@@ -11,6 +11,7 @@ const {
 // than at its first use below because the icon tables are derived from it.
 const { LIMIT_PROVIDER_CATALOG: LIMIT_PROVIDERS, LIMIT_PROVIDER_IDS } = window.TokenMonitorLimitProviders;
 const limitAccountPanelsApi = window.TokenMonitorLimitAccountPanels;
+const limitUsageItemsApi = window.TokenMonitorLimitUsageItems;
 const accountShellApi = window.TokenMonitorAccountShell;
 const accountProfileRequests = accountShellApi.createRequestGuard();
 const accountProfileStatuses = accountShellApi.createRequestGuard();
@@ -133,6 +134,15 @@ function limitProviderColor(providerId) {
   return clientColors[providerId] || clientColors.default;
 }
 const limitResetMotionApi = window.TokenMonitorLimitResetMotion;
+const limitResetAnimator = window.TokenMonitorLimitResetAnimator.createLimitResetAnimator({
+  document,
+  motion: limitResetMotionApi,
+  prefersReducedMotion: () => prefersReducedMotion(),
+  formatPercent: (value) => formatPercent(value),
+  requestAnimationFrame: (frame) => requestAnimationFrame(frame),
+  cancelAnimationFrame: (handle) => cancelAnimationFrame(handle),
+  performance
+});
 const appUpdatePresentationApi = window.TokenMonitorAppUpdatePresentation;
 const accountIdentityApi = window.TokenMonitorAccountIdentity;
 const clientStatusPresentationApi = window.TokenMonitorClientStatusPresentation;
@@ -228,22 +238,23 @@ const deviceStaleColor = '#8c97a7';
 const baseBreakdownOrder = ['tool', 'device', 'model', 'project', 'session'];
 const VIEW_DISPLAY_OPTIONS = [
   { id: 'home', labelKey: 'views.home' },
+  { id: 'limits', labelKey: 'views.limits' },
   { id: 'tool', labelKey: 'views.tool' },
-  { id: 'status', labelKey: 'views.status' },
-  { id: 'device', labelKey: 'views.device' },
   { id: 'model', labelKey: 'views.model' },
   { id: 'project', labelKey: 'views.project' },
   { id: 'session', labelKey: 'views.session' },
-  { id: 'limits', labelKey: 'views.limits' },
-  { id: 'trends', labelKey: 'views.trends' }
+  { id: 'device', labelKey: 'views.device' },
+  { id: 'trends', labelKey: 'views.trends' },
+  { id: 'status', labelKey: 'views.status' }
 ];
 const viewPeriodValues = new Set(['today', 'month', 'week', 'last7', 'last30', 'allTime']);
 const viewBreakdownValues = new Set(['home', ...baseBreakdownOrder, 'status', 'limits', 'trends']);
 const HOME_MODULE_OPTIONS = [
   { id: 'limits', labelKey: 'home.limits', viewId: 'limits' },
   { id: 'tool', labelKey: 'home.tools', viewId: 'tool' },
-  { id: 'device', labelKey: 'home.devices', viewId: 'device' },
   { id: 'model', labelKey: 'home.models', viewId: 'model' },
+  { id: 'session', labelKey: 'home.sessions', viewId: 'session' },
+  { id: 'device', labelKey: 'home.devices', viewId: 'device' },
   { id: 'trends', labelKey: 'home.activity', viewId: 'trends' }
 ];
 const VIEW_SWITCHER_LONG_PRESS_MS = 420;
@@ -276,9 +287,6 @@ const REFRESH_BUTTON_FEEDBACK_MS = 700;
 const LIVE_TOKEN_RATE_ACTIVE_MS = 8000;
 const LIVE_TOKEN_RATE_CLEAR_MS = 3 * 60 * 1000;
 const CODEX_PENDING_ACTIVE_GRACE_MS = 30000;
-const LIMIT_RESET_MOTION_EASING = 'cubic-bezier(0.333, 0.667, 0.667, 1)';
-const LIMIT_RESET_GLOW_MS = 700;
-const LIMIT_RESET_GLOW_LEAD_MS = 252;
 const initialFloatingBubble = window.__TOKEN_MONITOR_INITIAL_FLOATING_BUBBLE__ || { collapsed: false, side: null };
 const initialViewState = window.__TOKEN_MONITOR_INITIAL_VIEW_STATE__ || {};
 let initialBreakdownPreferenceApplied = typeof initialViewState.breakdown === 'string';
@@ -291,6 +299,7 @@ function normalizeInitialViewValue(value, allowed, fallback) {
 const state = { period: normalizeInitialViewValue(initialViewState.period, viewPeriodValues, 'today'), appUpdate: null, breakdown: normalizeInitialViewValue(initialViewState.breakdown, viewBreakdownValues, 'home'), viewSwitcherOpen: false, viewSwitcherHasOpened: false, limitDetailTooltipHasOpened: false, limitDetailTooltipActive: false, limitDetailTooltipRenderPending: false, settings: null, windowVisible: new URLSearchParams(window.location.search).get('windowHidden') !== '1', stats: null, homeHistory: null, homeHistoryBusy: false, homeHistoryRequested: false, homeHistorySignature: '', homeHistoryRetries: 0, homeHistoryRetryTimer: null, homeActivityScrollLeft: null, homeActivityFollowEnd: true, homeActivityResizeObserver: null, serviceStatus: null, serviceStatusBusy: false, serviceProvidersExpanded: false, trendSettingsExpanded: false, trendsActivating: false, homeSettingsExpanded: false, homeLimitSettingsExpanded: false, limitProviderSettingsExpanded: '', clientHealthExpanded: '', clientSources: clientSourceCacheApi.createClientSourceCache(), clientSourcesKey: '', clientSourcesRequest: 0, subscriptionEditingId: '', subscriptionTopUps: [], subscriptionFormBase: null, subscriptionEditorTransitionId: 0, serviceStatusTicker: null, refreshTimer: null, refreshBusy: false, refreshFeedbackTimer: null, currentTotal: 0, rowSignature: '', streamConnected: false, streamFailure: null, mode: 'idle', appInfo: null, systemDarkUi: false, tokscaleStatus: null, tokscaleCheck: null, tokscaleBusy: false, hubInfo: null, hubBuildStatus: null, cursorAccount: { status: null, error: '' }, cursorAccountExpanded: false, codexAccountExpanded: false, codexAccountError: '', codexSignInBusy: false, codexSignInFlowId: '', codexLoginUrl: '', codexLoginStatus: '', codexLoginOutput: '', codexWorkspaceChoices: [], codexWorkspaceId: '', codexActiveAccount: null, codexPendingActiveAccount: null, codexPendingActiveAccountUntil: 0, codexPendingActiveAccountTimer: null, customPricingExpanded: false, claudeAccountExpanded: false, claudePendingCheckSince: 0, opencodeProfileCount: 0, opencodeCookieExpanded: false, openrouterProfileCount: 0, openrouterAccountExpanded: false, thirdPartyProfileCount: 0, thirdPartyAccountExpanded: false, deepseekAccountExpanded: false, deepseekPendingCheckSince: 0, minimaxAccountExpanded: false, minimaxPendingCheckSince: 0, factoryAccountExpanded: false, factoryPendingCheckSince: 0, clineAccountExpanded: false, clinePendingCheckSince: 0, zaiAccountExpanded: false, zaiPendingCheckSince: 0, zaiteamAccountExpanded: false, zaiteamPendingCheckSince: 0, volcengineAccountExpanded: false, volcenginePendingCheckSince: 0, volcengineAgentExpanded: false, qoderAccountExpanded: false, qoderPendingCheckSince: 0, kimiAccountExpanded: false, kimiPendingCheckSince: 0, ollamaAccountExpanded: false, ollamaPendingCheckSince: 0, mimoAccountExpanded: false, mimoAccountError: '', antigravityAccountExpanded: false, antigravityAccountError: '', antigravitySignInBusy: false, copilotAccountExpanded: false, copilotManualExpanded: false, copilotPendingCheckSince: 0, copilotSignInBusy: false, copilotSignInCancelable: false, copilotSignInFlowId: '', copilotAuthorizeMessage: '', copilotLoginStatus: '', copilotErrorMessage: '', floatingBubble: initialFloatingBubble, suppressInitialNumberAnimation: window.__TOKEN_MONITOR_SUPPRESS_INITIAL_NUMBER_ANIMATION__ === true, openSession: null, detailSort: 'time', recordingWindowShortcut: false, windowShortcutInvalid: false, toolSearchQuery: '', limitProviderSearchQuery: '', accountPanelMessages: {} };
 state.devinAccountExpanded = false;
 state.devinPendingCheckSince = 0;
+state.icloudStatus = null;
 state.zedAccountExpanded = false;
 state.zedPendingCheckSince = 0;
 state.toolDetailMode = 'tokens';
@@ -388,6 +397,10 @@ Object.assign(els, {
   trayIconOptions: document.getElementById('trayIconOptions'),
   trayOptions: document.getElementById('trayOptions'),
   hubModeOptions: document.getElementById('hubModeOptions'),
+  icloudModeOption: document.querySelector('input[name="hubMode"][value="icloud"]'),
+  icloudFields: document.getElementById('icloudFields'),
+  icloudStatus: document.getElementById('icloudStatus'),
+  icloudRootStatus: document.getElementById('icloudRootStatus'),
   hubBuildStatus: document.getElementById('hubBuildStatus'),
   hubClientFields: document.getElementById('hubClientFields'),
   hubHostFields: document.getElementById('hubHostFields'),
@@ -761,6 +774,7 @@ function settingsSectionSummary(section) {
   if (section === 'sync') {
     if (state.settings.hubMode === 'host') return t('settings.sync.hostHub');
     if (state.settings.hubMode === 'client') return t('settings.sync.connectHub');
+    if (state.settings.hubMode === 'icloud') return t('settings.sync.icloud');
     return t('settings.sync.localOnly');
   }
   if (section === 'tools') {
@@ -893,7 +907,7 @@ function liveTokenRateSourceKey(periodSource) {
 
 function effectiveLiveTokenRateScope() {
   const hubMode = state.settings?.hubMode;
-  const syncMode = hubMode === 'client' || hubMode === 'host';
+  const syncMode = tokenRateApi.isSharedSyncMode(hubMode);
   return syncMode && state.settings?.liveTokenRateScope !== 'device' ? 'all' : 'device';
 }
 
@@ -928,7 +942,7 @@ function displayLiveTokenRateItems() {
 
 function effectiveDisplayLiveTokenRateScope(scope) {
   const hubMode = state.settings?.hubMode;
-  const syncMode = hubMode === 'client' || hubMode === 'host';
+  const syncMode = tokenRateApi.isSharedSyncMode(hubMode);
   return syncMode && scope === 'all' ? 'all' : 'device';
 }
 
@@ -1687,7 +1701,6 @@ function animateTotalNumber(el, from, to, duration) {
 
 const rowNumberAnimations = new Map();
 const rowBarAnimations = new Map();
-const limitResetNumberAnimations = new Map();
 const rowRenderFingerprints = new WeakMap();
 const toolDetailData = new WeakMap();
 
@@ -1709,11 +1722,7 @@ function settleMotionAnimations() {
     delete el.dataset.motionTarget;
   }
   rowNumberAnimations.clear();
-  for (const [el, motion] of limitResetNumberAnimations) {
-    cancelAnimationFrame(motion.handle);
-    el.textContent = `${formatPercent(motion.target)} ${motion.suffix}`;
-  }
-  limitResetNumberAnimations.clear();
+  limitResetAnimator.settle(els.limitsPanel);
   for (const animation of document.getAnimations?.() || []) {
     try { animation.finish(); } catch (_) { animation.cancel(); }
   }
@@ -1845,7 +1854,8 @@ function animateBarBetween(
   toScale,
   delay = 0,
   duration = 420,
-  easing = 'cubic-bezier(0.22, 1, 0.36, 1)'
+  easing = 'cubic-bezier(0.22, 1, 0.36, 1)',
+  startedAt = null
 ) {
   if (!fill?.animate) return;
   const previous = rowBarAnimations.get(fill);
@@ -1863,6 +1873,7 @@ function animateBarBetween(
     easing,
     fill: 'backwards'
   });
+  if (startedAt !== null) animation.startTime = startedAt;
   const motion = { animation, target: toScale };
   const forget = () => {
     if (rowBarAnimations.get(fill) === motion) rowBarAnimations.delete(fill);
@@ -1870,64 +1881,6 @@ function animateBarBetween(
   animation.onfinish = forget;
   animation.oncancel = forget;
   rowBarAnimations.set(fill, motion);
-}
-
-function animateLimitResetPercent(el, from, to, duration, startedAt = performance.now()) {
-  if (!el) return;
-  const suffix = el.dataset.limitMotionSuffix || '';
-  if (prefersReducedMotion() || !Number.isFinite(from) || !Number.isFinite(to) || from === to) {
-    el.textContent = `${formatPercent(to)} ${suffix}`;
-    return;
-  }
-  const delta = to - from;
-  const motion = { handle: 0, target: to, suffix };
-  let renderedText = `${formatPercent(from)} ${suffix}`;
-  el.textContent = renderedText;
-  function frame(now) {
-    if (prefersReducedMotion()) {
-      el.textContent = `${formatPercent(to)} ${suffix}`;
-      if (limitResetNumberAnimations.get(el) === motion) limitResetNumberAnimations.delete(el);
-      return;
-    }
-    const progress = Math.min(1, (now - startedAt) / duration);
-    const eased = 1 - ((1 - progress) * (1 - progress));
-    const nextText = `${formatPercent(from + delta * eased)} ${suffix}`;
-    // The displayed value is integer-rounded, so several animation frames can
-    // resolve to the same string. Avoid invalidating text layout on those frames.
-    if (nextText !== renderedText) {
-      renderedText = nextText;
-      el.textContent = nextText;
-    }
-    if (progress < 1) {
-      motion.handle = requestAnimationFrame(frame);
-    } else if (limitResetNumberAnimations.get(el) === motion) {
-      limitResetNumberAnimations.delete(el);
-    }
-  }
-  motion.handle = requestAnimationFrame(frame);
-  limitResetNumberAnimations.set(el, motion);
-}
-
-function animateLimitResetCompletion(fill, duration) {
-  if (!fill?.animate || prefersReducedMotion()) return;
-  const highlight = document.createElement('span');
-  highlight.className = 'limit-meter-completion';
-  fill.append(highlight);
-  const animation = highlight.animate([
-    { opacity: 0 },
-    {
-      offset: LIMIT_RESET_GLOW_LEAD_MS / LIMIT_RESET_GLOW_MS,
-      opacity: 0.52
-    },
-    { opacity: 0 }
-  ], {
-    duration: LIMIT_RESET_GLOW_MS,
-    delay: Math.max(0, duration - LIMIT_RESET_GLOW_LEAD_MS),
-    easing: 'linear'
-  });
-  const removeHighlight = () => highlight.remove();
-  animation.onfinish = removeHighlight;
-  animation.oncancel = removeHighlight;
 }
 
 function captureTrendBarMotion() {
@@ -2046,66 +1999,74 @@ function rowTemplate(rowData) {
   return row;
 }
 
-const hoverMarqueeStates = new WeakMap();
+const DEVICE_DELETE_CONFIRMATION_MS = 3000;
+const armedDeviceDeleteButtons = new Set();
+const devicesBeingDeleted = new Set();
+const deviceDeleteConfirmationTimers = new WeakMap();
 
-function stopHoverMarquee(element, { reset = true } = {}) {
-  const motion = hoverMarqueeStates.get(element);
-  if (motion?.delayId) clearTimeout(motion.delayId);
-  if (motion?.frameId) cancelAnimationFrame(motion.frameId);
-  hoverMarqueeStates.delete(element);
-  element.classList.remove('is-hover-scrolling');
-  if (reset) element.scrollLeft = 0;
+function clearDeviceDeleteConfirmationTimer(remove) {
+  const timer = deviceDeleteConfirmationTimers.get(remove);
+  if (timer === undefined) return;
+  clearTimeout(timer);
+  deviceDeleteConfirmationTimers.delete(remove);
 }
 
-function startHoverMarquee(element) {
-  stopHoverMarquee(element);
-  if (prefersReducedMotion() || !element.closest('.session-mode')) return;
-  const distance = Math.ceil(element.scrollWidth - element.clientWidth);
-  if (distance <= 1) return;
-
-  const motion = { delayId: 0, frameId: 0 };
-  hoverMarqueeStates.set(element, motion);
-  motion.delayId = setTimeout(() => {
-    motion.delayId = 0;
-    element.classList.add('is-hover-scrolling');
-    const startedAt = performance.now();
-    const duration = Math.max(1800, Math.min(8000, distance * 22));
-    const step = (now) => {
-      const progress = Math.min(1, (now - startedAt) / duration);
-      element.scrollLeft = distance * progress;
-      if (progress < 1) motion.frameId = requestAnimationFrame(step);
-      else motion.frameId = 0;
-    };
-    motion.frameId = requestAnimationFrame(step);
-  }, 240);
+function resetDeviceDeleteConfirmation(remove, defaultText = '') {
+  clearDeviceDeleteConfirmationTimer(remove);
+  armedDeviceDeleteButtons.delete(remove);
+  remove.dataset.confirm = '';
+  remove.textContent = defaultText;
 }
 
-function bindHoverMarquee(element) {
-  element.addEventListener('mouseenter', () => startHoverMarquee(element));
-  element.addEventListener('mouseleave', () => stopHoverMarquee(element));
+function armDeviceDeleteConfirmation(remove, defaultText, confirmationText) {
+  clearDeviceDeleteConfirmationTimer(remove);
+  armedDeviceDeleteButtons.add(remove);
+  remove.dataset.confirm = 'true';
+  remove.textContent = confirmationText;
+  const timer = setTimeout(() => resetDeviceDeleteConfirmation(remove, defaultText), DEVICE_DELETE_CONFIRMATION_MS);
+  deviceDeleteConfirmationTimers.set(remove, timer);
 }
 
-function setHoverMarqueeText(element, value) {
-  stopHoverMarquee(element);
-  const text = value || '';
-  element.textContent = text;
-  element.removeAttribute('title');
-}
+document.addEventListener('pointerdown', (event) => {
+  for (const remove of armedDeviceDeleteButtons) {
+    if (remove !== event.target && !remove.contains?.(event.target)) {
+      resetDeviceDeleteConfirmation(remove, t('settings.sync.icloudDelete'));
+    }
+  }
+});
+
+let homeSessionRenderPending = false;
+const overflowText = window.TokenMonitorOverflowText.create({
+  document, window, prefersReducedMotion,
+  enabled: element => Boolean(element.closest('.session-mode, .home-session-row')),
+  onLeave: () => requestAnimationFrame(() => {
+    if (homeSessionRenderPending && state.breakdown === 'home'
+      && visibleStatsSurface() === 'main' && state.stats) renderHome();
+  })
+});
+
+function bindHoverMarquee(element) { overflowText.bind(element); }
+function setHoverMarqueeText(element, value) { overflowText.setText(element, value); }
 
 function renderDeviceAccordion(accordionInner, deviceDetail) {
   const signature = JSON.stringify([
     toolIconsEnabled(state.settings?.showToolIcons),
     deviceDetail.emptyText,
     deviceDetail.metaParts,
+    deviceDetail.canDelete,
+    deviceDetail.deviceId,
+    devicesBeingDeleted.has(deviceDetail.deviceId),
     deviceDetail.tools.map((tool) => [
       tool.key,
       tool.value,
       Math.round(tool.percent),
       tool.color,
       tool.models.map((model) => [model.key, model.value])
-    ])
+      ])
   ]);
   if (accordionInner.dataset.signature === signature) return;
+  const previousDelete = accordionInner.querySelector?.('.device-delete-button');
+  if (previousDelete) resetDeviceDeleteConfirmation(previousDelete);
 
   const content = document.createElement('div');
   content.className = 'accordion-content device-breakdown';
@@ -2167,6 +2128,43 @@ function renderDeviceAccordion(accordionInner, deviceDetail) {
     meta.className = 'device-meta';
     meta.textContent = deviceDetail.metaParts.join(' · ');
     content.append(meta);
+  }
+  if (deviceDetail.canDelete && window.tokenMonitor.deleteDevice) {
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'device-delete-button';
+    remove.dataset.deviceId = deviceDetail.deviceId;
+    remove.disabled = devicesBeingDeleted.has(deviceDetail.deviceId);
+    const deleteText = t('settings.sync.icloudDelete');
+    const deleteConfirmText = t('settings.sync.icloudDeleteConfirm');
+    remove.textContent = deleteText;
+    const resetConfirmation = () => resetDeviceDeleteConfirmation(remove, deleteText);
+    remove.addEventListener('blur', resetConfirmation);
+    remove.addEventListener('click', async () => {
+      if (devicesBeingDeleted.has(deviceDetail.deviceId)) return;
+      if (remove.dataset.confirm !== 'true') {
+        armDeviceDeleteConfirmation(remove, deleteText, deleteConfirmText);
+        return;
+      }
+      remove.disabled = true;
+      devicesBeingDeleted.add(deviceDetail.deviceId);
+      try {
+        await window.tokenMonitor.deleteDevice(deviceDetail.deviceId);
+        resetConfirmation();
+        await refreshStats();
+      } catch (_) {
+        resetConfirmation();
+      } finally {
+        devicesBeingDeleted.delete(deviceDetail.deviceId);
+        // Stats may have replaced the original button while IPC was pending.
+        for (const current of [remove, ...document.querySelectorAll('.device-delete-button')]) {
+          if (current.dataset.deviceId !== deviceDetail.deviceId) continue;
+          current.disabled = false;
+          resetDeviceDeleteConfirmation(current, deleteText);
+        }
+      }
+    });
+    content.append(remove);
   }
   accordionInner.replaceChildren(content);
   accordionInner.dataset.signature = signature;
@@ -2292,16 +2290,20 @@ function setActiveToolDetailMode(mode) {
 // right now", and a fuel gauge for how much of its context window is left. The
 // dot is drawn only while the agent is working and the gauge only while the
 // session is recent, so a list of several hundred past sessions is untouched.
-function updateRowContext(row, context) {
+function updateRowContext(row, context, promptCache, contextSnapshot) {
   const gauge = row.querySelector('.row-context');
   if (!gauge) return;
   const percentLeft = context ? Number(context.percentLeft) : NaN;
   if (!Number.isFinite(percentLeft)) {
-    gauge.classList.add('hidden');
-    gauge.removeAttribute('title');
+    gauge.classList.toggle('hidden', !promptCache);
+    gauge.dataset.tone = '';
+    gauge.querySelector('.row-context-meter').classList.add('hidden');
+    gauge.querySelector('.row-context-value').textContent = promptCache ? t('session.cacheEstimate', { minutes: promptCache.minutes }) : '';
+    sessionRowsApi.setSessionTooltip(gauge, promptCache ? contextSnapshot : null, promptCache, t, limitWindowsView);
     return;
   }
   gauge.classList.remove('hidden');
+  gauge.querySelector('.row-context-meter').classList.remove('hidden');
   // Headroom is what decides the colour whichever way the number is written:
   // a gauge reading "93% used" is the same emergency as one reading "7% left".
   gauge.dataset.tone = String(context.tone || '');
@@ -2312,7 +2314,7 @@ function updateRowContext(row, context) {
   // Default is used, matching Codex and Claude Code's own readouts.
   const showUsed = state.settings?.sessionContextMetric !== 'remaining';
   const percent = showUsed ? Number(context.percentUsed) : percentLeft;
-  gauge.title = t(showUsed ? 'session.contextUsed' : 'session.contextLeft', { percent }) || `${percent}%`;
+  sessionRowsApi.setSessionTooltip(gauge, context, promptCache, t, limitWindowsView);
   gauge.querySelector('.row-context-value').textContent = `${percent}%`;
   gauge.querySelector('.row-context-fill').style.setProperty('--bar-scale', String(percent / 100));
 }
@@ -2355,7 +2357,7 @@ function updateRowLive(row, activityState, activityAt) {
   dot.classList.add('pulse');
 }
 
-function updateRow(row, { name, subtitle, activity, detail, value, cost, barValue, max, color, barBackground, accordionRows, deviceDetail, stale, platform, local, client, kind, cacheReadTokens, outputTokens, unclassifiedTokens, modelRows, tokenDataUnavailable, sessionDetailAvailable, reviewGroup, running, activityState, context, sortTime }) {
+function updateRow(row, { name, subtitle, activity, detail, value, cost, barValue, max, color, barBackground, accordionRows, deviceDetail, stale, platform, local, client, kind, cacheReadTokens, outputTokens, unclassifiedTokens, modelRows, modelLabel, modelTooltipEntries, tokenDataUnavailable, sessionDetailAvailable, reviewGroup, running, activityState, context, promptCache, contextSnapshot, sortTime }) {
   const width = rowWidth(barValue, max);
   const isExpanded = row.classList.contains('expanded');
   // `running` still drives the row class for layout, but the mark's own state
@@ -2394,9 +2396,33 @@ function updateRow(row, { name, subtitle, activity, detail, value, cost, barValu
     mark.className = 'row-mark dot';
     mark.style.background = color;
   }
-  setHoverMarqueeText(row.querySelector('.row-title'), name);
+  const titleEl = row.querySelector('.row-title');
+  setHoverMarqueeText(titleEl, name);
   const subtitleEl = row.querySelector('.row-subtitle');
-  subtitleEl.textContent = subtitle || '';
+  // A multi-model session abbreviates to "N models"; that label opens the same
+  // tooltip the context gauge carries, one row per model with its tokens and
+  // share of the session. A titled row prints the label inside the
+  // client · model line, so the trigger is just the "N models" span; an
+  // untitled row folds it into the title instead, whose whole text then opens
+  // the tooltip. The trigger mirrors the row's own wording rather than adding
+  // chrome, so there is nothing extra on a single-model row.
+  const modelEntries = Array.isArray(modelTooltipEntries) && modelTooltipEntries.length > 1
+    ? modelTooltipEntries : null;
+  const subtitleShowsModel = Boolean(modelEntries && modelLabel && String(subtitle || '').endsWith(modelLabel));
+  if (subtitleShowsModel) {
+    const models = document.createElement('span');
+    models.className = 'session-models';
+    models.textContent = modelLabel;
+    subtitleEl.replaceChildren(document.createTextNode(subtitle.slice(0, -modelLabel.length)), models);
+    limitWindowsView.setDetailTooltip(models, modelEntries);
+  } else {
+    subtitleEl.textContent = subtitle || '';
+  }
+  if (!subtitleShowsModel && modelEntries && modelLabel && String(name || '').endsWith(modelLabel)) {
+    limitWindowsView.setDetailTooltip(titleEl, modelEntries);
+  } else if (titleEl.classList.contains('limit-detail-tooltip-wrap')) {
+    limitWindowsView.setDetailTooltip(titleEl, null);
+  }
   subtitleEl.classList.toggle('hidden', !subtitle);
   const activityEl = row.querySelector('.row-activity');
   activityEl.textContent = activity || '';
@@ -2420,7 +2446,7 @@ function updateRow(row, { name, subtitle, activity, detail, value, cost, barValu
   // reading), so this draws whatever arrived rather than re-deciding from
   // `running` - that second gate is exactly what made the dock card and this
   // list disagree about whether a session still had a gauge.
-  updateRowContext(row, context);
+  updateRowContext(row, context, promptCache, contextSnapshot);
   updateRowLive(row, activityState || (running === true ? 'running' : 'idle'), sortTime);
   const fill = row.querySelector('.bar-fill');
   fill.style.background = barBackground || color;
@@ -2574,6 +2600,7 @@ function renderSessionPager(page) {
 }
 
 function renderRows(rows, { incompleteHint = '' } = {}) {
+  if (sessionTooltipShouldHoldRender()) return;
   if (rows.length === 0 && !incompleteHint) {
     els.breakdown.replaceChildren();
     renderSessionPager(null);
@@ -2733,7 +2760,11 @@ function deviceRowsForPeriod() {
       deviceDetail: {
         ...breakdown,
         emptyText: breakdown.totalTokens > 0 ? t('devices.detailsUnavailable') : t('home.noTools'),
-        metaParts
+        metaParts,
+        deviceId: device.deviceId,
+        canDelete: state.settings?.hubMode === 'icloud'
+          && device.deviceId !== localId
+          && state.stats?.devices?.some((live) => live.deviceId === device.deviceId && live.stale === true)
       }
     };
   }).sort((a, b) => b.value - a.value);
@@ -2797,16 +2828,21 @@ function modelRowsForPeriod(period, rankingMetric = state.settings?.modelRanking
   return toolRowsForPeriod(period);
 }
 
-function sessionRowsForPeriod(period) {
-  const rows = sessionRowsApi.sessionRowsForPeriod(period, {
+function rawSessionRowsForPeriod(period) {
+  return sessionRowsApi.sessionRowsForPeriod(period, {
     clientLabels,
     clientColors,
     modelColor,
     stableColor,
     fallbackColors: fallbackModelColors,
     archivedLabel: t('session.archived'),
+    unattributedLabel: t('dashboard.tooltip.unclassified'),
     nativeSessions: state.stats?.nativeSessions?.[state.period] || {}
   });
+}
+
+function sessionRowsForPeriod(period) {
+  const rows = rawSessionRowsForPeriod(period);
   if (rows.length > 0) {
     rows.sort((a, b) => b.sortTime - a.sortTime || b.value - a.value || b.cost - a.cost || a.name.localeCompare(b.name));
     return sessionRowsApi.groupBackgroundReviewRows(rows, {
@@ -3379,7 +3415,11 @@ async function saveSubscriptions(list, base, { render = true } = {}) {
 function subscriptionWriteErrorKey(error) {
   const message = error?.message || '';
   if (/stale_write/.test(message)) return 'settings.subscriptions.errorStaleWrite';
+  if (/icloud_adoption_unconfirmed/.test(message)) return 'settings.subscriptions.errorIcloudAdoptionUnconfirmed';
   if (/hub_rejected/.test(message)) return 'settings.subscriptions.errorHubRejected';
+  if (/icloud_(?:unavailable|stopped)|icloud_write_failed|root-create-failed|subscription-write-failed/.test(message)) {
+    return 'settings.subscriptions.errorIcloudWrite';
+  }
   if (/write_failed/.test(message)) return 'settings.subscriptions.errorWriteFailed';
   if (/hub_changed/.test(message)) return 'settings.subscriptions.errorHubChanged';
   return 'settings.subscriptions.errorHubWrite';
@@ -3413,9 +3453,11 @@ function renderSubscriptionSyncError() {
 function renderSubscriptionNote() {
   const el = els.subscriptionNote;
   if (!el) return;
-  const key = state.settings?.subscriptionsShared
-    ? 'settings.subscriptions.noteShared'
-    : 'settings.subscriptions.note';
+  const key = state.settings?.hubMode === 'icloud'
+    ? 'settings.subscriptions.noteIcloud'
+    : state.settings?.subscriptionsShared
+      ? 'settings.subscriptions.noteShared'
+      : 'settings.subscriptions.note';
   el.dataset.i18n = key;
   el.textContent = t(key);
 }
@@ -3955,6 +3997,10 @@ function limitDetailTooltipShouldHoldRender() {
   return Boolean(els.limitsPanel.querySelector('.limit-detail-tooltip-wrap:hover, .limit-detail-tooltip-wrap:focus-within'));
 }
 
+function sessionTooltipShouldHoldRender() {
+  return Boolean(document.querySelector('.home-session-row .is-hover-reading, .home-session-meta .limit-detail-tooltip-wrap:hover, .home-session-meta .limit-detail-tooltip-wrap:focus-within, .row-context.limit-detail-tooltip-wrap:hover, .row-context.limit-detail-tooltip-wrap:focus-within, .row-label .limit-detail-tooltip-wrap:hover, .row-label .limit-detail-tooltip-wrap:focus-within, .detail-ex-title.limit-detail-tooltip-wrap:hover, .detail-ex-title.limit-detail-tooltip-wrap:focus-within'));
+}
+
 function flushPendingLimitDetailTooltipRender() {
   if (!state.limitDetailTooltipRenderPending || state.breakdown !== 'limits') return;
   state.limitDetailTooltipRenderPending = false;
@@ -4011,6 +4057,7 @@ const limitWindowsView = window.TokenMonitorLimitWindowsView.createLimitWindowsV
         if (limitDetailTooltipShouldHoldRender()) return;
         state.limitDetailTooltipActive = false;
         flushPendingLimitDetailTooltipRender();
+        if (state.breakdown === 'home' || state.breakdown === 'session') render();
       });
     }
   },
@@ -4273,81 +4320,14 @@ function maybeFetchCodexResetForecast() {
 }
 
 function captureLimitResetMotion() {
-  const snapshot = new Map();
-  for (const row of els.limitsPanel?.querySelectorAll('.limit-row[data-limit-motion-key]') || []) {
-    for (const item of row.querySelectorAll('.limit-window[data-limit-motion-key]')) {
-      const key = `${row.dataset.limitMotionKey}\0${item.dataset.limitMotionKey}`;
-      const entry = {
-        remainingPercent: item.dataset.limitRemainingPercent,
-        displayPercent: item.dataset.limitDisplayPercent,
-        resetsAt: item.dataset.limitResetAt
-      };
-      // Ambiguous identities are safer left static than animated on the wrong row.
-      snapshot.set(key, snapshot.has(key) ? null : entry);
-    }
-  }
-  return snapshot;
+  // The refill motion itself lives in limits/resetAnimator.js — the edge
+  // dock's card plays it through the same animator, so this page keeps a
+  // scope-bound wrapper rather than a second copy.
+  return limitResetAnimator.capture(els.limitsPanel);
 }
 
 function animateLimitResets(snapshot) {
-  if (!snapshot?.size || prefersReducedMotion()) return;
-  const motions = [];
-  for (const row of els.limitsPanel?.querySelectorAll('.limit-row[data-limit-motion-key]') || []) {
-    for (const item of row.querySelectorAll('.limit-window[data-limit-motion-key]')) {
-      const key = `${row.dataset.limitMotionKey}\0${item.dataset.limitMotionKey}`;
-      const previous = snapshot.get(key);
-      const current = {
-        remainingPercent: item.dataset.limitRemainingPercent,
-        displayPercent: item.dataset.limitDisplayPercent,
-        resetsAt: item.dataset.limitResetAt
-      };
-      if (!previous || !limitResetMotionApi.shouldAnimateReset(previous, current)) continue;
-      const from = Number(previous.displayPercent);
-      const to = Number(current.displayPercent);
-      const fill = item.querySelector('.limit-meter-fill');
-      if (
-        previous.displayPercent === ''
-        || current.displayPercent === ''
-        || !Number.isFinite(from)
-        || !Number.isFinite(to)
-        || !fill
-      ) continue;
-      const duration = limitResetMotionApi.durationMs(from, to);
-      motions.push({
-        fill,
-        from,
-        item,
-        to,
-        duration
-      });
-    }
-  }
-  if (!motions.length) return;
-  // Start only after the replacement DOM is paintable. The rest of the refresh render
-  // can delay this first frame; excluding that delay prevents the motion from visibly
-  // catching up by skipping its opening values.
-  requestAnimationFrame((startedAt) => {
-    if (prefersReducedMotion()) return;
-    for (const { fill, from, item, to, duration } of motions) {
-      if (!fill.isConnected || !item.isConnected) continue;
-      animateBarBetween(
-        fill,
-        from / 100,
-        to / 100,
-        0,
-        duration,
-        LIMIT_RESET_MOTION_EASING
-      );
-      animateLimitResetCompletion(fill, duration);
-      animateLimitResetPercent(
-        item.querySelector('[data-limit-motion-value]'),
-        from,
-        to,
-        duration,
-        startedAt
-      );
-    }
-  });
+  limitResetAnimator.animate(els.limitsPanel, snapshot);
 }
 
 function renderLimits() {
@@ -4385,6 +4365,7 @@ function renderLimits() {
       state.settings?.claudePrepaidBalanceEnabled !== false,
       state.settings?.codexResetForecastEnabled === true,
       state.settings?.showCodexAdditionalLimits !== false,
+      state.settings?.limitProviderHiddenItems || {},
       state.settings?.currency || '',
       state.settings?.currencyRatesEffective || null,
       state.settings?.subscriptions || [],
@@ -4685,10 +4666,31 @@ function renderSessionDetail({ detail, loading, error } = {}) {
   container.replaceChildren();
 
   const back = document.createElement('button');
-  back.className = 'detail-back';
-  back.textContent = `‹ ${t('sessions') || 'Sessions'}`;
+  const title = state.openSession?.title;
+  const backLabel = state.openSession?.returnTo?.kind === 'background-review-group'
+    ? t('sessions.backgroundReviews') : (t('sessions') || 'Sessions');
+  back.type = 'button';
+  back.className = title ? 'detail-back detail-back-titled' : 'detail-back';
+  if (!title) back.textContent = `‹ ${backLabel}`;
+  back.setAttribute('aria-label', title
+    ? t('sessions.backToWithTitle', { title, destination: backLabel })
+    : t('sessions.backTo', { destination: backLabel }));
+  if (!title) back.title = backLabel;
   back.addEventListener('click', sessionDetailBack);
   head.append(back);
+
+  if (title) {
+    const arrow = document.createElement('span');
+    arrow.className = 'detail-back-arrow';
+    arrow.textContent = '‹';
+    arrow.setAttribute('aria-hidden', 'true');
+    const heading = document.createElement('span');
+    heading.className = 'detail-heading';
+    heading.textContent = title;
+    heading.title = title;
+    bindHoverMarquee(heading);
+    back.append(arrow, heading);
+  }
 
   if (loading) { container.append(detailNote(t('detailLoading') || 'Loading…')); return; }
   if (error || (detail && detail.found === false)) { container.append(detailNote(t('detailNotFound') || 'Transcript not found on this machine.')); return; }
@@ -4719,7 +4721,16 @@ function backgroundReviewRunNode(row, max, parent) {
     + '<div class="detail-ex-metrics"><span class="detail-ex-value"></span><span class="detail-ex-cost"></span></div></div>'
     + '<div class="bar"><div class="bar-fill"></div></div>';
   const time = sessionRowsApi.compactSessionTime(row.sortTime, new Date());
-  wrap.querySelector('.detail-ex-title').textContent = time || t('sessions.backgroundReviews');
+  const title = [row.modelLabel, time].filter(Boolean).join(' · ') || t('sessions.backgroundReviews');
+  const titleEl = wrap.querySelector('.detail-ex-title');
+  titleEl.textContent = title;
+  titleEl.title = title;
+  bindHoverMarquee(titleEl);
+  // A multi-model run reads "N models · time" here — the same label the
+  // Sessions list opens for its per-model shares, so the title opens it too.
+  if (row.modelTooltipEntries?.length > 1) {
+    limitWindowsView.setDetailTooltip(titleEl, row.modelTooltipEntries);
+  }
   wrap.querySelector('.detail-ex-sub').textContent = row.detail || '';
   wrap.querySelector('.detail-ex-value').textContent = formatNumber(row.value);
   wrap.querySelector('.detail-ex-cost').textContent = formatCost(row.cost || 0);
@@ -4728,7 +4739,7 @@ function backgroundReviewRunNode(row, max, parent) {
     client: row.client,
     sessionId: String(row.key || '').replace(/^session:[^:]+:/, ''),
     sessionCost: Number(row.cost || 0),
-    title: `${t('sessions.backgroundReviews')} · ${time}`,
+    title,
     returnTo: parent
   });
   wrap.addEventListener('click', open);
@@ -4750,13 +4761,22 @@ function renderBackgroundReviewDetail(request) {
   container.replaceChildren();
 
   const back = document.createElement('button');
-  back.className = 'detail-back';
-  back.textContent = `‹ ${t('sessions') || 'Sessions'}`;
+  back.type = 'button';
+  back.className = 'detail-back detail-back-titled';
+  back.setAttribute('aria-label', t('sessions.backToWithTitle', {
+    title: t('sessions.backgroundReviews'), destination: t('sessions') || 'Sessions'
+  }));
   back.addEventListener('click', closeSessionDetail);
-  const heading = document.createElement('strong');
+  const arrow = document.createElement('span');
+  arrow.className = 'detail-back-arrow';
+  arrow.textContent = '‹';
+  arrow.setAttribute('aria-hidden', 'true');
+  const heading = document.createElement('span');
   heading.className = 'detail-heading';
   heading.textContent = t('sessions.backgroundReviews');
-  head.append(back, heading);
+  bindHoverMarquee(heading);
+  back.append(arrow, heading);
+  head.append(back);
 
   const rows = request?.summary?.backgroundReviewRows || [];
   if (rows.length === 0) {
@@ -4800,6 +4820,7 @@ function exchangeNode(row, max) {
     exTitle.append(role, sep);
   }
   exTitle.append(document.createTextNode(row.title));
+  bindHoverMarquee(exTitle);
   wrap.querySelector('.detail-ex-sub').textContent = row.subtitle;
   const tokensAvailable = row.tokensAvailable !== false;
   wrap.querySelector('.detail-ex-value').textContent = tokensAvailable
@@ -5535,14 +5556,23 @@ function homeLimitRows() {
   const providerOrder = state.settings?.homeLimitProviderOrder || state.settings?.limitProviderOrder;
   const providerOptions = limitProviderOrderApi.orderedLimitProviders(LIMIT_PROVIDERS, providerOrder);
   const hasConfiguredOrder = Boolean(state.settings?.homeLimitProviderOrder);
+  const isWindowHidden = (providerId, window) => limitUsageItemsApi.isLimitWindowHidden(
+    state.settings?.limitProviderHiddenItems, providerId, window
+  );
   return homeOverviewApi.homeLimitAccountsForProviders({
+    // Hidden rows go before the compact pick, so Antigravity's tightest window
+    // per group is chosen among the ones the user still shows.
     providers: (state.stats?.limits?.providers || []).map((provider) => ({
       ...provider,
-      windows: limitProviderPresentationApi.limitProviderCompactWindows(provider, provider.windows)
+      windows: limitProviderPresentationApi.limitProviderCompactWindows(
+        provider,
+        (provider.windows || []).filter((window) => !isWindowHidden(provider.provider, window))
+      )
     })),
     providerOptions,
     enabledProviderIds: Array.from(enabled),
     hiddenProviderIds: Array.from(hiddenHomeLimitProviderSet()),
+    isWindowHidden,
     colors: { ...clientColors, factory: clientColors.droid },
     limit: state.settings?.homeLimitAccountCount ?? 3,
     sort: hasConfiguredOrder ? 'configured' : 'remaining',
@@ -5595,7 +5625,14 @@ function renderHomeLimitModule() {
   if (rows.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'home-module-empty';
-    empty.textContent = t('home.noLimits');
+    const providerOrder = state.settings?.homeLimitProviderOrder || state.settings?.limitProviderOrder;
+    const awaitingFirstData = homeOverviewApi.homeLimitsAwaitingFirstData({
+      providers: state.stats?.limits?.providers || [],
+      providerOptions: limitProviderOrderApi.orderedLimitProviders(LIMIT_PROVIDERS, providerOrder),
+      enabledProviderIds: Array.from(enabledLimitProviderSet()),
+      hiddenProviderIds: Array.from(hiddenHomeLimitProviderSet())
+    });
+    empty.textContent = t(awaitingFirstData ? 'home.limitsInitializing' : 'home.noLimits');
     body.append(empty);
     return module;
   }
@@ -5719,6 +5756,162 @@ function renderHomeToolModule(period) {
     share.className = 'home-list-aux';
     share.textContent = formatPercent(row.share * 100);
     item.append(mark, name, value, share);
+    body.append(item);
+  }
+  return module;
+}
+
+function homeSessionAgo(value) {
+  if (!Number.isFinite(value) || value <= 0) return '';
+  const minutes = Math.round(Math.max(0, Date.now() - value) / 60000);
+  if (minutes < 1) return t('edgeDock.agoNow');
+  if (minutes < 60) return t('edgeDock.agoMinutes', { count: minutes });
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return t('edgeDock.agoHours', { count: hours });
+  return t('edgeDock.agoDays', { count: Math.round(hours / 24) });
+}
+
+function homeSessionContext(context, promptCache) {
+  const showUsed = state.settings?.sessionContextMetric !== 'remaining';
+  const percent = showUsed ? context.percentUsed : context.percentLeft;
+  const node = document.createElement('span');
+  node.className = 'home-session-context';
+  node.dataset.tone = context.tone || '';
+  const meter = document.createElement('span');
+  meter.className = 'home-session-context-meter';
+  const fill = document.createElement('span');
+  fill.className = 'home-session-context-fill';
+  fill.style.setProperty('--bar-scale', String(percent / 100));
+  meter.append(fill);
+  const value = document.createElement('span');
+  value.textContent = `${percent}%`;
+  node.append(meter, value);
+  sessionRowsApi.setSessionTooltip(node, context, promptCache, t, limitWindowsView);
+  return node;
+}
+
+function stopHomeSessionRepaint() {
+  clearTimeout(state.homeSessionRepaintTimer);
+  state.homeSessionRepaintTimer = null;
+}
+
+function scheduleHomeSessionRepaint() {
+  stopHomeSessionRepaint();
+  const rows = window.TokenMonitorEdgeDockPresentation.recentSessionRows(state.stats, 5, { includeRunningBeyondCap: true });
+  if (!rows.length) return;
+  const now = Date.now();
+  const expiry = window.TokenMonitorEdgeDockPresentation.nextRunningExpiryAt(rows, now);
+  // Refresh relative ages once a minute, or sooner when a running session expires.
+  const cacheExpiry = window.TokenMonitorSessionLive?.nextSessionStatusChangeAt(rows, now) || 0;
+  const nextExpiry = [expiry, cacheExpiry].filter((at) => at > now).sort((a, b) => a - b)[0];
+  const delay = nextExpiry ? Math.min(60_000, Math.max(1_000, nextExpiry - now + 50)) : 60_000;
+  state.homeSessionRepaintTimer = setTimeout(() => {
+    state.homeSessionRepaintTimer = null;
+    if (visibleStatsSurface() !== 'main' || state.breakdown !== 'home') return;
+    const current = els.homePanel?.querySelector('.home-module-session');
+    if (!current) return;
+    const hadFocus = document.activeElement === current;
+    const next = renderHomeSessionModule();
+    current.replaceWith(next);
+    if (hadFocus) next.focus();
+    scheduleHomeSessionRepaint();
+  }, delay);
+}
+
+// Keep the Sessions metrics slot current even when no collection arrives.
+let sessionStatusRepaintTimer = null;
+function stopSessionStatusRepaint() {
+  clearTimeout(sessionStatusRepaintTimer);
+  sessionStatusRepaintTimer = null;
+}
+function scheduleSessionStatusRepaint(period, incompleteHint = '') {
+  stopSessionStatusRepaint();
+  const now = Date.now();
+  const next = window.TokenMonitorSessionLive.nextSessionStatusChangeAt(Object.values(period?.sessions || {}), now);
+  if (!next) return;
+  sessionStatusRepaintTimer = setTimeout(() => {
+    sessionStatusRepaintTimer = null;
+    if (visibleStatsSurface() !== 'main' || state.breakdown !== 'session' || state.openSession) return;
+    renderRows(sessionRowsForPeriod(period), { incompleteHint });
+    scheduleSessionStatusRepaint(period, incompleteHint);
+  }, Math.min(60_000, Math.max(1_000, next - now + 50)));
+}
+
+function renderHomeSessionModule() {
+  const current = els.homePanel?.querySelector('.home-module-session');
+  if (current && sessionTooltipShouldHoldRender()) {
+    homeSessionRenderPending = true;
+    return current;
+  }
+  const rows = window.TokenMonitorEdgeDockPresentation.recentSessionRows(state.stats, 5, { includeRunningBeyondCap: true });
+  const runningCount = rows.filter((row) => window.TokenMonitorSessionLive.sessionActivityState(row) === 'running').length;
+  const meta = runningCount > 0 ? t('home.runningSessions', { count: runningCount }) : '';
+  const { module, body } = homeModuleShell('session', t('home.sessions'), 'session', meta);
+  if (rows.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'home-module-empty';
+    empty.textContent = t('home.noSessions');
+    body.append(empty);
+    return module;
+  }
+  for (const row of rows) {
+    const activityState = window.TokenMonitorSessionLive.sessionActivityState(row);
+    const item = document.createElement('div');
+    item.className = 'home-list-row home-session-row';
+    const mark = document.createElement('span');
+    applyHomeListMark(mark, iconKindFor({ client: row.client }, 'session'), clientColors[row.client] || stableColor(row.key, fallbackModelColors));
+    const stateMark = document.createElement('span');
+    stateMark.className = 'home-session-state';
+    stateMark.dataset.state = activityState;
+    stateMark.setAttribute('aria-hidden', 'true');
+    stateMark.innerHTML = window.TokenMonitorSessionLive.sessionStateMarkup({
+      spin: 'home-session-spin',
+      check: 'home-session-check',
+      idle: 'home-session-idle'
+    });
+    stateMark.title = t(activityState === 'running' ? 'session.running'
+      : activityState === 'ended' ? 'session.finished' : 'session.idle');
+    const name = document.createElement('span');
+    name.className = 'home-list-name';
+    name.textContent = row.title || row.projectLabel || String(row.sessionId || '').slice(0, 12) || '—';
+    bindHoverMarquee(name);
+    const value = document.createElement('span');
+    value.className = 'home-list-value';
+    value.textContent = formatCompact(row.totalTokens);
+    const meta = document.createElement('div');
+    meta.className = 'home-session-meta';
+    const age = homeSessionAgo(Date.parse(row.lastUsedAt || row.startedAt || ''));
+    const description = document.createElement('span');
+    description.className = 'home-list-sub';
+    // The same "N models" hover the Sessions list draws: the label stays the
+    // row's own text, and the tooltip lists the models behind the count.
+    const modelLabel = sessionRowsApi.sessionModelLabel(row);
+    const modelEntries = sessionRowsApi.sessionModelTooltipEntries(row, {
+      unattributedLabel: t('dashboard.tooltip.unclassified'),
+      formatTokens: formatCompact
+    });
+    if (modelLabel && modelEntries.length > 1) {
+      const models = document.createElement('span');
+      models.className = 'session-models';
+      models.textContent = modelLabel;
+      limitWindowsView.setDetailTooltip(models, modelEntries);
+      description.append(models);
+      if (age) description.append(document.createTextNode(` · ${age}`));
+    } else {
+      description.textContent = [modelLabel, age].filter(Boolean).join(' · ');
+    }
+    meta.append(description);
+    const context = window.TokenMonitorSessionLive.sessionActivityState(row) !== 'idle' ? row.context : null;
+    const cache = window.TokenMonitorSessionLive.sessionPromptCacheForRow(row);
+    if (cache && !context) {
+      const badge = document.createElement('span');
+      badge.className = 'home-session-cache';
+      badge.textContent = t('session.cacheEstimate', { minutes: cache.minutes });
+      sessionRowsApi.setSessionTooltip(badge, row, cache, t, limitWindowsView);
+      meta.append(badge);
+    }
+    if (context) meta.append(homeSessionContext(context, cache));
+    item.append(mark, stateMark, name, value, meta);
     body.append(item);
   }
   return module;
@@ -6183,6 +6376,11 @@ function renderHomeTrendsModule() {
 
 function renderHome() {
   if (!els.homePanel) return;
+  if (sessionTooltipShouldHoldRender()) {
+    homeSessionRenderPending = true;
+    return;
+  }
+  homeSessionRenderPending = false;
   // The previous scroller (and its ResizeObserver) is about to be replaced; drop the
   // observer so at most one is live. Keep the active tooltip visible while the
   // replacement heatmap reconnects it to the same date cell.
@@ -6216,9 +6414,11 @@ function renderHome() {
     if (id === 'tool') return renderHomeToolModule(period);
     if (id === 'device') return renderHomeDeviceModule();
     if (id === 'model') return renderHomeModelModule(period);
+    if (id === 'session') return renderHomeSessionModule();
     return renderHomeTrendsModule();
   });
   els.homePanel.replaceChildren(...nodes);
+  if (moduleIds.includes('session')) scheduleHomeSessionRepaint();
   // setupHomeActivityScroller first runs while its module is detached, where
   // scrollWidth can equal clientWidth. Apply again synchronously now that the DOM is
   // attached, before the browser paints or hover restoration measures the new cell.
@@ -6240,6 +6440,8 @@ function render() {
   }
   if (!state.stats) return;
   allTimeSessions.ensure();
+  stopHomeSessionRepaint();
+  stopSessionStatusRepaint();
   els.toolDetailFooter.classList.add('hidden');
   syncLiveTokenRateFooterState();
   renderSessionUsageArchiveStatus();
@@ -6359,7 +6561,10 @@ function render() {
     if (state.openSession.kind === 'background-review-group') {
       const latest = sessionRowsForPeriod(period).find((row) => row.reviewGroup === true);
       if (latest) state.openSession.summary = latest;
-      renderBackgroundReviewDetail(state.openSession);
+      // The rebuild replaces every run node, so a hovered run tooltip would die
+      // mid-read (and a keyboard focus with it); hold until it closes, as the
+      // session and home lists already do.
+      if (!sessionTooltipShouldHoldRender()) renderBackgroundReviewDetail(state.openSession);
     }
     if (state.openSession.renderOptions) {
       const options = state.openSession.renderOptions;
@@ -6380,6 +6585,7 @@ function render() {
       incompleteHint = 'sessions.incomplete';
     }
     renderRows(rows, { incompleteHint });
+    if (state.breakdown === 'session') scheduleSessionStatusRepaint(period, incompleteHint);
   }
   
   renderFloatingBubbleContent();
@@ -6416,6 +6622,11 @@ function streamFailureText(failure) {
 }
 
 function statusTextFor(mode, connected) {
+  if (mode === 'sync' && state.settings?.hubMode === 'icloud') {
+    return String(state.icloudStatus?.state || '').toLowerCase() === 'available'
+      ? 'iCloud'
+      : 'Waiting…';
+  }
   if (mode === 'sync') return connected ? 'Live' : 'Offline';
   if (mode === 'local') return connected ? 'Local' : 'Collecting…';
   return 'Starting…';
@@ -6423,6 +6634,12 @@ function statusTextFor(mode, connected) {
 
 function liveDotTitle(mode, connected) {
   if (mode === 'sync') {
+    if (state.settings?.hubMode === 'icloud') {
+      const status = String(state.icloudStatus?.state || 'waiting');
+      return status === 'available'
+        ? t('settings.sync.icloudAvailable')
+        : t('settings.sync.icloudWaiting');
+    }
     if (connected) return t('status.hubStreamLive');
     const reason = streamFailureText(state.streamFailure);
     return reason ? `${t('status.hubStreamOffline')}: ${reason}` : t('status.hubStreamOffline');
@@ -7585,18 +7802,55 @@ function syncHubModeUi() {
   for (const input of els.hubModeOptions.querySelectorAll('input[name="hubMode"]')) {
     input.checked = input.value === mode;
   }
+  const icloudSupported = state.appInfo?.platform === 'darwin';
+  if (els.icloudModeOption) {
+    els.icloudModeOption.disabled = !icloudSupported;
+    els.icloudModeOption.closest('.hub-mode-option')?.classList.toggle('unsupported', !icloudSupported);
+  }
   els.hubClientFields.classList.toggle('hidden', mode !== 'client');
   els.hubHostFields.classList.toggle('hidden', mode !== 'host');
+  els.icloudFields?.classList.toggle('hidden', mode !== 'icloud');
   if (mode === 'host') {
     els.hubSecretInput.value = state.settings.hubHostSecret || '';
     renderHubStatus();
+  } else {
+    renderIcloudStatus();
   }
   renderSyncClientStatus();
   renderHubBuildStatus();
   syncHubSaveButton();
 }
 
+function renderIcloudStatus() {
+  if (!els.icloudStatus || !els.icloudRootStatus) return;
+  const supported = state.appInfo?.platform === 'darwin';
+  const info = state.icloudStatus || state.hubInfo?.icloud || null;
+  if (!supported) {
+    els.icloudStatus.textContent = t('settings.sync.icloudUnsupported');
+    els.icloudStatus.className = 'hub-status';
+    els.icloudRootStatus.textContent = '';
+    return;
+  }
+  const status = String(info?.state || 'waiting');
+  const labels = {
+    available: 'settings.sync.icloudAvailable',
+    initializing: 'settings.sync.icloudInitializing',
+    starting: 'settings.sync.icloudInitializing',
+    waiting: 'settings.sync.icloudWaiting',
+    unavailable: 'settings.sync.icloudUnavailable',
+    error: 'settings.sync.icloudError',
+    stopped: 'settings.sync.icloudWaiting'
+  };
+  els.icloudStatus.textContent = t(labels[status] || 'settings.sync.icloudWaiting');
+  els.icloudStatus.className = `hub-status${status === 'available' ? ' ok' : status === 'error' ? ' error' : ''}`;
+  const root = String(info?.root || '').trim();
+  els.icloudRootStatus.textContent = root
+    ? `${t('settings.sync.icloudRoot')}: ${root}`
+    : t('settings.sync.icloudRootWaiting');
+}
+
 function renderHubStatus() {
+  renderIcloudStatus();
   if (!els.hubStatusRow || !els.hubAddressList) return;
   const info = state.hubInfo;
   const port = Number(state.settings.hubHostPort || 17321);
@@ -7705,6 +7959,7 @@ async function refreshHubInfo() {
   if (!window.tokenMonitor.getHubInfo) return;
   try {
     state.hubInfo = await window.tokenMonitor.getHubInfo();
+    if (state.hubInfo?.icloud) state.icloudStatus = state.hubInfo.icloud;
     renderHubStatus();
   } catch (_) { /* ignore */ }
 }
@@ -8031,7 +8286,7 @@ function syncSettingsForm() {
     els.liveTokenRateScopeInput.value = state.settings.liveTokenRateScope === 'device' ? 'device' : 'all';
   }
   const liveRateHasScope = state.settings.showLiveTokenRate === true
-    && (state.settings.hubMode === 'client' || state.settings.hubMode === 'host');
+    && tokenRateApi.isSharedSyncMode(state.settings.hubMode);
   els.liveTokenRateScopeRow?.classList.toggle('hidden', !liveRateHasScope);
   if (els.compactTokenUnitsInput) {
     els.compactTokenUnitsInput.value = state.settings.compactTokenUnits === 'localized' ? 'localized' : 'western';
@@ -10032,6 +10287,9 @@ function renderLimitProviderCheckboxesNow() {
       const input = inputs[index];
       if (input) reusableSettingInputs.set(`${providerId}:${setting.key}`, input);
     });
+    for (const input of row.querySelectorAll?.('.limit-provider-usage-items-list input[data-item-id]') || []) {
+      reusableSettingInputs.set(`${providerId}:item:${input.dataset.itemId}`, input);
+    }
   }
   const enabled = enabledLimitProviderSet();
   const collected = new Map((state.stats?.limits?.providers || []).map((provider) => [provider.provider, provider]));
@@ -10112,7 +10370,8 @@ function renderLimitProviderCheckboxesNow() {
       actions.append(mode);
     }
     const settings = LIMIT_PROVIDER_SETTINGS[id];
-    const hasOptions = Boolean(accountGroup || settings || connectionDetailKey);
+    const usageItems = isEnabled ? limitProviderUsageItemRows(id) : [];
+    const hasOptions = Boolean(accountGroup || settings || connectionDetailKey || usageItems.length);
     let optionsContainer = null;
     let optionsInner = null;
     let main = null;
@@ -10142,6 +10401,7 @@ function renderLimitProviderCheckboxesNow() {
       }
       if (connectionDetailKey) optionsInner.append(limitProviderConnectionDetail(connectionDetailKey));
       if (settings) optionsInner.append(limitProviderSettingsList(id, settings, reusableSettingInputs));
+      if (usageItems.length) optionsInner.append(limitProviderUsageItemsList(id, usageItems, reusableSettingInputs));
       optionsContainer.append(optionsInner);
       const toggleOptions = () => {
         const opening = state.limitProviderSettingsExpanded !== id;
@@ -10230,7 +10490,9 @@ function moveOpenCodeLocalFallbackSetting() {
 // panel only turns the answer into its message line and the pending pill;
 // generated and hand-built panels share this, including which messages they
 // may override (`messages.required` / `rejected` / `invalidFormat`).
+let claudeOrganizationChoicesRevision = 0;
 async function saveAccountCredential(id, values, { messages = {}, failedKey, clearInput = () => {} } = {}) {
+  if (id === 'claude') claudeOrganizationChoicesRevision += 1;
   const provider = LIMIT_PROVIDERS.find((entry) => entry.id === id);
   const name = provider?.settingsLabel || provider?.label || id;
   setAccountPanelMessage(id, null);
@@ -10244,6 +10506,13 @@ async function saveAccountCredential(id, values, { messages = {}, failedKey, cle
     return result;
   }
   if (result?.verdict === 'superseded') return result;
+  if (id === 'claude') claudeOrganizationChoicesRevision += 1;
+  if (id === 'claude' && result?.choices) renderClaudeOrganizationChoices(result.choices, result.settings?.claudeWebOrganizationId || values.claudeWebOrganizationId);
+  if (id === 'claude' && result?.verdict === 'selectionRequired') {
+    setAccountPanelMessage(id, { key: 'settings.claude.organizationRequired', tone: 'notice' });
+    renderExternalProviderStatus(id);
+    return result;
+  }
   if (!result?.saved) {
     const rejection = {
       required: { key: messages.required || 'settings.common.credentialRequired' },
@@ -10289,8 +10558,13 @@ async function submitAccountCredential(button, id, values, options) {
 }
 
 async function clearAccountCredential(id) {
+  if (id === 'claude') claudeOrganizationChoicesRevision += 1;
   setAccountPanelMessage(id, null);
   await commitAccountCredential(() => window.tokenMonitor.limits.clearCredential(id));
+  if (id === 'claude') {
+    claudeOrganizationChoicesRevision += 1;
+    renderClaudeOrganizationChoices([]);
+  }
   clearExternalProviderCheckPending(id);
   clearExternalProviderPendingStatus(id);
   renderExternalProviderStatus(id);
@@ -10308,11 +10582,59 @@ function limitAccountForm(providerId) {
   return state.settings?.limitAccountForms?.find((form) => form.id === providerId);
 }
 
+function renderClaudeOrganizationChoices(choices, selectedId = state.settings?.claudeWebOrganizationId || '') {
+  const select = document.getElementById('claudeWebOrganizationIdInput');
+  if (!select) return false;
+  document.getElementById('claudeWebOrganizationRow')?.classList.toggle('hidden', choices.length === 0);
+  select.options.length = 0;
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = t('settings.claude.organizationChoose');
+  select.append(placeholder);
+  for (const choice of choices) {
+    const option = document.createElement('option');
+    option.value = choice.id;
+    option.textContent = [choice.name || choice.id, choice.plan ? choice.plan[0].toUpperCase() + choice.plan.slice(1) : ''].filter(Boolean).join(' · ');
+    select.append(option);
+  }
+  const selectedAvailable = choices.some((choice) => choice.id === selectedId);
+  select.value = selectedAvailable ? selectedId : !selectedId && choices.length === 1 ? choices[0].id : '';
+  select.disabled = choices.length === 0;
+  return selectedAvailable;
+}
+
+async function loadClaudeOrganizationChoices() {
+  const revision = ++claudeOrganizationChoicesRevision;
+  try {
+    const result = await window.tokenMonitor.limits.listOrganizationChoices('claude');
+    if (revision !== claudeOrganizationChoicesRevision) return;
+    if (result.status === 'ok') {
+      const selectedAvailable = renderClaudeOrganizationChoices(result.choices);
+      if (!selectedAvailable && (state.settings?.claudeWebOrganizationId || result.choices.length > 1)) {
+        setAccountPanelMessage('claude', { key: state.settings?.claudeWebOrganizationId
+          ? 'settings.claude.organizationUnavailable'
+          : 'settings.claude.organizationSelect', tone: 'notice' });
+      }
+    } else setAccountPanelMessage('claude', { key: 'settings.claude.organizationLoadFailed', tone: 'notice' });
+  } catch (_) {
+    if (revision !== claudeOrganizationChoicesRevision) return;
+    setAccountPanelMessage('claude', { key: 'settings.claude.organizationLoadFailed', tone: 'notice' });
+  }
+}
+
 // A select beside a credential (region, site, console) saves as soon as it
 // changes. `clears` names what the change invalidates: an Alibaba cookie
 // belongs to the console it was copied from and cannot authenticate the other
 // one, so switching drops it instead of leaving a key that can only fail.
 async function saveAccountFormSetting({ id }, field, value) {
+  if (id === 'claude' && field.key === 'claudeWebOrganizationId') {
+    if (!value || !state.settings?.claudeWebCookieConfigured || document.getElementById('claudeWebCookieInput')?.value) return;
+    claudeOrganizationChoicesRevision += 1;
+    await saveSettings({ claudeWebOrganizationId: value });
+    setAccountPanelMessage('claude', null);
+    await refreshStats({ force: true });
+    return;
+  }
   if (!field.saveOnChange) return;
   const cleared = Object.fromEntries((field.clears || []).map((key) => [key, '']));
   await saveSettings({ [field.key]: value, ...cleared });
@@ -10336,7 +10658,10 @@ function setupLimitAccountPanels() {
         document,
         provider: externalProviderForAccount(form.id)
       })),
-      onRefresh: () => refreshStats({ force: true }),
+      onRefresh: async () => {
+        if (form.id === 'claude') await loadClaudeOrganizationChoices();
+        await refreshStats({ force: true });
+      },
       onClear: ({ id }) => clearAccountCredential(id),
       onSave: ({ id, messages, failedKey }, values, clearInput) => saveAccountCredential(id, values, { messages, failedKey, clearInput }),
       onFieldChange: (form, field, value) => saveAccountFormSetting(form, field, value)
@@ -10349,6 +10674,7 @@ function setupLimitAccountPanels() {
     added = true;
     setExternalAccountExpanded(form.id, false);
     limitAccountPanelsApi.syncCredentialFields(form, { document, settings: state.settings });
+    if (form.id === 'claude' && state.settings?.claudeWebCookieConfigured) void loadClaudeOrganizationChoices();
     renderExternalProviderStatus(form.id);
   }
   if (added) initSettingsAnimationWrappers();
@@ -10409,11 +10735,6 @@ const LIMIT_PROVIDER_SETTINGS = {
     defaultValue: true
   }],
   codex: [{
-    key: 'showCodexAdditionalLimits',
-    titleKey: 'settings.limits.codexAdditionalLimits',
-    descKey: 'settings.limits.codexAdditionalLimitsDesc',
-    defaultValue: true
-  }, {
     key: 'codexResetForecastEnabled',
     titleKey: 'settings.limits.codexResetForecast',
     descKey: 'settings.limits.codexResetForecastDesc',
@@ -10466,6 +10787,7 @@ function limitProviderSettingsRenderSignature() {
       settingValues,
       state.limitProviderSettingsExpanded
     ],
+    usageItems: [...enabledLimitProviderSet()].sort().map((id) => [id, limitProviderUsageItemRows(id)]),
     query: limitProviderQuery(),
     providers: (state.stats?.limits?.providers || []).map(providerSignature),
     devices: (state.stats?.devices || []).map(deviceSignature)
@@ -10516,6 +10838,90 @@ function limitProviderSettingsList(providerId, settings, reusableInputs = null) 
     list.append(item);
   }
   return list;
+}
+
+// The checklist of what a provider's card draws, read off an unfiltered render
+// of its records so it can only name rows the card really has (see
+// shared/limits/usageItems). A hidden item the records no longer draw stays
+// listed, marked unavailable, so it can still be shown again. The renders are
+// kept until the records, the settings or the locale change: the list's render
+// signature asks for them on every pass.
+let limitUsageItemsCache = null;
+function limitProviderUsageItemRows(providerId) {
+  const records = state.stats?.limits?.providers || [];
+  const locale = currentLocale();
+  const cache = limitUsageItemsCache;
+  if (!cache || cache.records !== records || cache.settings !== state.settings || cache.locale !== locale) {
+    limitUsageItemsCache = { records, settings: state.settings, locale, byProvider: new Map() };
+  }
+  const cached = limitUsageItemsCache.byProvider.get(providerId);
+  if (cached) return cached;
+  const fallbackLabel = (itemId) => limitUsageItemsApi.usageItemFallbackLabel(providerId, itemId);
+  const hidden = limitUsageItemsApi.hiddenUsageItemSet(state.settings?.limitProviderHiddenItems, providerId);
+  const drawn = limitWindowsView.limitProviderUsageItems(records.filter((record) => record?.provider === providerId));
+  const rows = drawn.map(({ id, label }) => ({ id, label: label || fallbackLabel(id), hidden: hidden.has(id), available: true }));
+  const drawnIds = new Set(drawn.map(({ id }) => id));
+  for (const id of hidden) {
+    if (drawnIds.has(id)) continue;
+    const label = fallbackLabel(id) || id;
+    rows.push({ id, label, hidden: true, available: false });
+  }
+  limitUsageItemsCache.byProvider.set(providerId, rows);
+  return rows;
+}
+
+function limitProviderUsageItemsList(providerId, items, reusableInputs = null) {
+  const section = document.createElement('div');
+  section.className = 'limit-provider-usage-items';
+  const head = document.createElement('div');
+  head.className = 'limit-provider-usage-items-head';
+  const title = document.createElement('span');
+  title.className = 'limit-provider-usage-items-title';
+  title.textContent = t('settings.limits.usageItems');
+  head.append(title);
+  if (items.some((item) => item.hidden)) {
+    const restore = document.createElement('button');
+    restore.type = 'button';
+    restore.className = 'reset-appearance-button reset-inline';
+    restore.textContent = '↺';
+    restore.title = t('settings.limits.usageItemsRestore');
+    restore.setAttribute('aria-label', restore.title);
+    restore.addEventListener('click', () => commitLimitProviderHiddenItems(
+      limitUsageItemsApi.restoreUsageItemDefaults(state.settings?.limitProviderHiddenItems, providerId)
+    ));
+    head.append(restore);
+  }
+  const list = document.createElement('div');
+  list.className = 'limit-provider-usage-items-list';
+  for (const entry of items) {
+    const item = document.createElement('label');
+    item.className = 'client-checkbox';
+    const inputKey = `${providerId}:item:${entry.id}`;
+    const existingInput = reusableInputs?.get(inputKey);
+    const input = existingInput || document.createElement('input');
+    input.type = 'checkbox';
+    input.dataset.itemId = entry.id;
+    input.checked = !entry.hidden;
+    if (!existingInput) {
+      input.addEventListener('change', () => commitLimitProviderHiddenItems(
+        limitUsageItemsApi.setUsageItemHidden(state.settings?.limitProviderHiddenItems, providerId, entry.id, !input.checked)
+      ));
+    }
+    const text = document.createElement('span');
+    text.textContent = entry.available ? entry.label : t('settings.limits.usageItemUnavailable', { item: entry.label });
+    item.title = text.textContent;
+    item.append(input, text);
+    list.append(item);
+  }
+  section.append(head, list);
+  return section;
+}
+
+// Applied locally before the write, so a second click made while the first is
+// still in flight builds on it instead of on the value the first replaces.
+function commitLimitProviderHiddenItems(next) {
+  state.settings = { ...state.settings, limitProviderHiddenItems: next };
+  saveSettings({ limitProviderHiddenItems: next }).catch(() => {});
 }
 
 async function onToolTrackingToggle() {
@@ -11188,6 +11594,10 @@ els.saveSettingsButton.addEventListener('click', async () => {
 els.hubModeOptions.addEventListener('change', async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement) || target.name !== 'hubMode') return;
+  if (target.value === 'icloud' && state.appInfo?.platform !== 'darwin') {
+    syncHubModeUi();
+    return;
+  }
   await saveSettings({ hubMode: target.value });
   await refreshHubInfo();
   void refreshHubBuildStatus();
@@ -11538,7 +11948,7 @@ els.showCompactTotalTokensInput.addEventListener('change', async () => {
 els.showLiveTokenRateInput.addEventListener('change', async () => {
   state.settings.showLiveTokenRate = els.showLiveTokenRateInput.checked;
   const liveRateHasScope = state.settings.showLiveTokenRate
-    && (state.settings.hubMode === 'client' || state.settings.hubMode === 'host');
+    && tokenRateApi.isSharedSyncMode(state.settings.hubMode);
   els.liveTokenRateScopeRow?.classList.toggle('hidden', !liveRateHasScope);
   if (state.settings.showLiveTokenRate) observeLiveTokenRate(state.stats);
   renderLiveTokenRate();
@@ -11590,7 +12000,8 @@ function syncEdgeDockControls() {
   els.edgeDockOptions?.classList.toggle('hidden', !enabled);
   const side = state.settings?.edgeDockSide === 'left' ? 'left' : 'right';
   for (const input of els.edgeDockSideInputs || []) input.checked = input.value === side;
-  const mode = state.settings?.edgeDockMode === 'always' ? 'always' : 'autoHide';
+  const modes = (els.edgeDockModeInputs || []).map((input) => input.value);
+  const mode = modes.includes(state.settings?.edgeDockMode) ? state.settings.edgeDockMode : 'autoHide';
   for (const input of els.edgeDockModeInputs || []) input.checked = input.value === mode;
   els.edgeDockHapticRow?.classList.toggle('hidden', state.appInfo?.platform !== 'darwin');
   if (els.edgeDockHapticInput) els.edgeDockHapticInput.checked = state.settings?.edgeDockHaptic !== false;
@@ -11612,6 +12023,12 @@ const edgeDockComposer = els.edgeDockComposer && window.TokenMonitorEdgeDockComp
     save: (patch) => saveSettings(patch),
     providerLabel: (id) => window.TokenMonitorLimitProviders.LIMIT_PROVIDER_LABELS[id] || id,
     providerColor: (id) => limitProviderColor(id),
+    windowLabel: (record, quotaWindow) => record?.provider === 'codex' && quotaWindow.additional === true
+      ? limitWindowsView.codexAdditionalWindowLabel(
+        quotaWindow,
+        (record.windows || []).filter((entry) => entry?.additional === true)
+      )
+      : limitWindowsView.providerWindowLabel(record, quotaWindow, 'Quota'),
     hasProviderMark: (id) => limitMarksWithIcon.has(id),
     // Offer every enabled provider in the user's limits order, including those
     // without quota data. Keep the ordering rule here rather than in the composer.
@@ -11619,6 +12036,9 @@ const edgeDockComposer = els.edgeDockComposer && window.TokenMonitorEdgeDockComp
       .orderedLimitProviders(LIMIT_PROVIDERS, state.settings?.limitProviderOrder)
       .filter(({ id }) => enabledLimitProviderSet().has(id))
       .map(({ id }) => id),
+    isWindowHidden: (providerId, quotaWindow) => limitUsageItemsApi.isLimitWindowHidden(
+      state.settings?.limitProviderHiddenItems, providerId, quotaWindow
+    ),
     maskEmail: (email) => (state.settings?.maskLimitAccountEmails === true
       ? accountIdentityApi.maskEmailAddress(email)
       : String(email || '')),
@@ -11893,6 +12313,7 @@ window.tokenMonitor.onFloatingBubbleState?.((payload) => {
 window.tokenMonitor.onHubPush?.((payload) => {
   if (!payload?.info) return;
   state.hubInfo = payload.info;
+  if (payload.info.icloud) state.icloudStatus = payload.info.icloud;
   const settingsVisible = isSettingsSurfaceVisible();
   // The first switch to Host mode generates the shared secret asynchronously
   // after settings:update has already returned, so mirror the freshly minted
@@ -11996,6 +12417,7 @@ window.tokenMonitor.onStatsPush?.((payload) => {
   if (payload.event === 'status') {
     state.streamConnected = Boolean(payload.data?.connected);
     if (payload.data?.mode) state.mode = payload.data.mode;
+    if (payload.data?.icloud) state.icloudStatus = payload.data.icloud;
     state.streamFailure = state.streamConnected ? null : (payload.data?.reason ? { reason: payload.data.reason, detail: payload.data.detail ?? null } : state.streamFailure);
   } else if (payload.data?.stats) {
     // Local collector overlays update client-mode data independently of the
@@ -12006,6 +12428,7 @@ window.tokenMonitor.onStatsPush?.((payload) => {
       state.streamFailure = null;
     }
     if (payload.data?.mode) state.mode = payload.data.mode;
+    if (payload.data?.icloud) state.icloudStatus = payload.data.icloud;
     allTimeSessions.invalidate();
     state.stats = allTimeSessions.attach(payload.data.stats);
     observeLiveTokenRate(state.stats);
