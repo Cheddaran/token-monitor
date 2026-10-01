@@ -312,24 +312,6 @@ function assertExpected(parsed) {
   }
 }
 
-// `tokscale --client <id> --json` exits non-zero for clients the binary
-// does not recognize. Used by the contract loop to skip cases whose
-// expected client is not yet supported by the binary running the check.
-function binarySupportsClient(binPath, client) {
-  const probe = spawnSync(binPath, ['--client', client, '--json', '--no-spinner'], {
-    encoding: 'utf8',
-    timeout: 15_000
-  });
-  if (probe.error) return false;
-  if (probe.status !== 0) return false;
-  try {
-    JSON.parse(probe.stdout);
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
-
 function assertTokenContract(parsed, contract) {
   const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
   const entry = entries[0];
@@ -412,15 +394,16 @@ function main() {
       assertSessionMetadata(runAgainstFixture(binPath, home, SESSION_GROUP_BY));
     }
     for (const contract of TOKEN_CONTRACT_CASES) {
-    // PR #513 added `mcode` to the catalog before upstream tokycale added
-    // an mcode parser. Until that lands, the binary doesn't recognize the
-    // client and `assertTokenContract` would reject every fixture run with
-    // `Fixture run exited <non-zero>`. Probe the binary once before running
-    // the case: if the mcode query is rejected upstream, skip just that case
-    // (every other client is still exercised end-to-end) and emit a
-    // warning so the gap is obvious in logs.
-    if (contract.client === 'mcode' && !binarySupportsClient(binPath, contract.client)) {
-      console.warn(`Skipping ${contract.client} token contract — tokycale does not recognize this client yet (expected until upstream tokycale lands mcode parser support).`);
+    // PR #513 added `mcode` to the catalog before upstream tokycale landed
+    // an mcode parser, and the placeholder fixture in TOKEN_CONTRACT_CASES
+    // does not model tokycale's real mcode JSON shape. Until both the parser
+    // AND a real captured fixture exist, skip the contract case so the
+    // release gate does not fail on every OS × arch target. The
+    // `tests/shared/tokscaleTokenContracts.test.js` unit gate still requires
+    // the case to be present so the regression is caught upstream once
+    // tokycale + fixture are real.
+    if (contract.client === 'mcode') {
+      console.warn(`Skipping ${contract.client} token contract — placeholder fixture pending tokycale mcode parser support; remove this guard when a captured fixture is validated against the real binary.`);
       continue;
     }
     assertTokenContract(runAgainstFixture(binPath, home, 'client,session,model', contract.client), contract);
